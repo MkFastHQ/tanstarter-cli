@@ -81,7 +81,7 @@ CLI 会检查 `node`、`pnpm`、`git`、`gh`、GitHub CLI 登录状态和 Cloudf
 
 初始化流程：
 
-1. 克隆 TanStarter 模板。
+1. 克隆 TanStarter 模板并保留其 Git 历史。
 2. 使用 `pnpm install` 安装依赖。
 3. 创建 Cloudflare D1、R2 和 KV 资源。
 4. 更新 `wrangler.jsonc`。
@@ -92,6 +92,10 @@ CLI 会检查 `node`、`pnpm`、`git`、`gh`、GitHub CLI 登录状态和 Cloudf
 9. 创建 GitHub 仓库。
 10. 同步 GitHub Actions secrets。
 11. 提交代码并推送到 `main` 分支。
+
+生成的仓库使用 `origin` 指向新建的 GitHub 仓库，并使用 `upstream` 指向
+`https://github.com/MkFastHQ/mkfast-template.git`。由于模板历史会被保留，
+后续升级可以直接使用正常的 Git 合并，无需重新建立共同祖先。
 
 模板 `.env.example` 中声明的环境变量，如果当前 shell 中已经存在，会被复制到生成的 `.env` 和 `.env.production` 文件中。CLI 自动生成的 Cloudflare、D1、KV、base URL 和 auth secret 等值会优先生效。
 

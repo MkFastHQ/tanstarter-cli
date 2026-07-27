@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -13,7 +14,9 @@ import {
   parseKVNamespaceId,
 } from '../src/cloudflare.ts';
 import { runCommand, shellForPlatform } from '../src/commands.ts';
+import { DEFAULT_TEMPLATE_URL } from '../src/constants.ts';
 import { ensureEnvFiles, formatEnvValue } from '../src/env.ts';
+import { initializeGit } from '../src/git.ts';
 import { isCliEntrypoint } from '../src/index.ts';
 import { getInstallPlan } from '../src/preflight.ts';
 import { formatDefaultGithubRepo } from '../src/prompt.ts';
@@ -42,6 +45,14 @@ function createTestConfig(overrides: Partial<RuntimeConfig> = {}): RuntimeConfig
     kvNamespaceId: '0123456789abcdef0123456789abcdef',
     ...overrides,
   };
+}
+
+function runGit(cwd: string, args: string[]): string {
+  return execFileSync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }).trim();
 }
 
 describe('parseArgs', () => {
@@ -339,6 +350,63 @@ describe('command runner', () => {
     } finally {
       log.mockRestore();
     }
+  });
+});
+
+describe('Git initialization', () => {
+  it('preserves template history and renames its remote to upstream', () => {
+    const targetDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'tanstarter-git-')
+    );
+    runGit(targetDir, ['init', '-b', 'main']);
+    fs.writeFileSync(path.join(targetDir, 'README.md'), '# Template\n', 'utf8');
+    fs.writeFileSync(path.join(targetDir, '.gitignore'), 'node_modules\n', 'utf8');
+    runGit(targetDir, ['add', '.']);
+    runGit(targetDir, [
+      '-c',
+      'user.name=TanStarter Test',
+      '-c',
+      'user.email=test@example.com',
+      'commit',
+      '-m',
+      'template base',
+    ]);
+    const templateHead = runGit(targetDir, ['rev-parse', 'HEAD']);
+    runGit(targetDir, ['remote', 'add', 'origin', DEFAULT_TEMPLATE_URL]);
+
+    initializeGit(targetDir);
+
+    expect(runGit(targetDir, ['rev-parse', 'HEAD'])).toBe(templateHead);
+    expect(runGit(targetDir, ['remote'])).toBe('upstream');
+    expect(runGit(targetDir, ['remote', 'get-url', 'upstream'])).toBe(
+      DEFAULT_TEMPLATE_URL
+    );
+    expect(runGit(targetDir, ['status', '--short', '.gitignore'])).toBe(
+      'M  .gitignore'
+    );
+  });
+
+  it('keeps an existing origin while adding the template upstream', () => {
+    const targetDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'tanstarter-git-')
+    );
+    runGit(targetDir, ['init', '-b', 'main']);
+    runGit(targetDir, [
+      'remote',
+      'add',
+      'origin',
+      'https://github.com/example/demo-app.git',
+    ]);
+
+    initializeGit(targetDir);
+    initializeGit(targetDir);
+
+    expect(runGit(targetDir, ['remote', 'get-url', 'origin'])).toBe(
+      'https://github.com/example/demo-app.git'
+    );
+    expect(runGit(targetDir, ['remote', 'get-url', 'upstream'])).toBe(
+      DEFAULT_TEMPLATE_URL
+    );
   });
 });
 

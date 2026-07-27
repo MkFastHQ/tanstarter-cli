@@ -81,7 +81,7 @@ The CLI checks for `node`, `pnpm`, `git`, `gh`, GitHub CLI auth, and Cloudflare 
 
 The setup flow:
 
-1. Clones the TanStarter template.
+1. Clones the TanStarter template and preserves its Git history.
 2. Installs dependencies with `pnpm install`.
 3. Creates Cloudflare D1, R2, and KV resources.
 4. Updates `wrangler.jsonc`.
@@ -92,6 +92,11 @@ The setup flow:
 9. Creates a GitHub repository.
 10. Syncs GitHub Actions secrets.
 11. Commits and pushes to `main`.
+
+The generated repository uses `origin` for your new GitHub repository and
+`upstream` for `https://github.com/MkFastHQ/mkfast-template.git`. Because the
+template history is preserved, future template updates can use a normal Git
+merge instead of reconstructing a common ancestor.
 
 Environment variables from the template `.env.example` are copied from your shell into the generated `.env` and `.env.production` files when present. Generated Cloudflare, D1, KV, base URL, and auth secret values take precedence.
 
