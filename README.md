@@ -6,33 +6,66 @@ Create a production-ready TanStarter app from the template and deploy it to Clou
 
 ## Quick Start
 
+This repository is used from source, not from npm. Build it and link it once:
+
+```bash
+git clone https://github.com/akfc58/tanstarter-cli.git
+cd tanstarter-cli
+pnpm install
+pnpm build
+npm link
+```
+
+Then go to the directory where you want the new project to live and run:
+
 ```bash
 export CLOUDFLARE_ACCOUNT_ID="..."
 export CLOUDFLARE_API_TOKEN="..."
 
-npx tanstarter-cli@latest create
+tanstarter create
 ```
 
-TanStarter CLI will ask for the project name and resource names before creating anything.
+TanStarter CLI creates the project directory under the current working directory, so run it from your projects folder, not from inside this repository. It will ask for the project name and resource names before creating anything.
 
 ## Install
 
-Run without installing:
+### Global command (recommended)
+
+`npm link` symlinks `dist/index.js` into your npm global bin, so `tanstarter` is available everywhere:
 
 ```bash
-npx tanstarter-cli@latest create
+pnpm build
+npm link
+
+tanstarter --version
 ```
 
-Or install globally:
+After changing anything under `src/`, run `pnpm build` again. The linked command points at `dist/`, so it picks up the new build without relinking.
+
+To remove the link:
 
 ```bash
-npm install -g tanstarter-cli
+npm unlink -g tanstarter-cli
 ```
 
-Then run:
+`pnpm link --global` works too, but it fails with `ERR_PNPM_NO_GLOBAL_BIN_DIR` until you have run `pnpm setup` once.
+
+### Run from source
+
+Skip the build step while iterating on the CLI itself:
 
 ```bash
-tanstarter create
+pnpm dev create
+pnpm dev --help
+```
+
+`pnpm dev` runs `tsx src/index.ts`. Do not insert `--` before the flags: `pnpm dev -- --help` passes `--` through to the CLI and fails with `Unknown option: --`.
+
+### Run the build output directly
+
+```bash
+pnpm build
+node /path/to/tanstarter-cli/dist/index.js create
 ```
 
 ## Commands
@@ -72,6 +105,7 @@ tanstarter delete my-app
 ## Prerequisites
 
 - Node.js 20 or later.
+- pnpm, to install dependencies and build this repository.
 - A Cloudflare account with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` available in your shell environment.
 - A GitHub account authenticated with GitHub CLI.
 

@@ -6,33 +6,66 @@
 
 ## 快速开始
 
+本仓库从源码使用，不走 npm 发布。构建并链接一次即可：
+
+```bash
+git clone https://github.com/akfc58/tanstarter-cli.git
+cd tanstarter-cli
+pnpm install
+pnpm build
+npm link
+```
+
+然后进入你想创建新项目的目录，运行：
+
 ```bash
 export CLOUDFLARE_ACCOUNT_ID="..."
 export CLOUDFLARE_API_TOKEN="..."
 
-npx tanstarter-cli@latest create
+tanstarter create
 ```
 
-TanStarter CLI 会在真正创建资源之前询问项目名称和相关资源名称。
+TanStarter CLI 会在**当前工作目录**下创建项目目录，所以要在你的项目根目录运行，不要在本仓库里运行。CLI 会在真正创建资源之前询问项目名称和相关资源名称。
 
 ## 安装
 
-不安装，直接运行：
+### 全局命令（推荐）
+
+`npm link` 会把 `dist/index.js` 软链到 npm 全局 bin 目录，`tanstarter` 在任何位置都可用：
 
 ```bash
-npx tanstarter-cli@latest create
+pnpm build
+npm link
+
+tanstarter --version
 ```
 
-或者全局安装：
+改动 `src/` 下的代码后，重新执行 `pnpm build` 即可。全局命令指向 `dist/`，不需要重新 link。
+
+取消链接：
 
 ```bash
-npm install -g tanstarter-cli
+npm unlink -g tanstarter-cli
 ```
 
-然后运行：
+`pnpm link --global` 也可以，但在没执行过 `pnpm setup` 之前会报 `ERR_PNPM_NO_GLOBAL_BIN_DIR`。
+
+### 直接跑源码
+
+调试 CLI 本身时可以跳过构建：
 
 ```bash
-tanstarter create
+pnpm dev create
+pnpm dev --help
+```
+
+`pnpm dev` 实际执行 `tsx src/index.ts`。注意参数前**不要加 `--`**：`pnpm dev -- --help` 会把 `--` 原样传给 CLI，报 `Unknown option: --`。
+
+### 直接跑构建产物
+
+```bash
+pnpm build
+node /path/to/tanstarter-cli/dist/index.js create
 ```
 
 ## 命令
@@ -72,6 +105,7 @@ tanstarter delete my-app
 ## 前置要求
 
 - Node.js 20 或更高版本。
+- pnpm，用于安装依赖和构建本仓库。
 - 一个 Cloudflare 账号，并在当前 shell 环境中设置 `CLOUDFLARE_ACCOUNT_ID` 和 `CLOUDFLARE_API_TOKEN`。
 - 一个已经通过 GitHub CLI 登录的 GitHub 账号。
 
