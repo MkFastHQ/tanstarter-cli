@@ -5,3 +5,4 @@ dist
 .env.production
 *.tgz
 .local
+.DS_store
