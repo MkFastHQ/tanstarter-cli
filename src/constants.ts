@@ -1,4 +1,4 @@
 export const STATE_DIR = '.tanstarter';
 export const STATE_FILE = 'state.json';
-export const DEFAULT_TEMPLATE_URL = 'https://github.com/MkFastHQ/mkfast-template.git';
+export const DEFAULT_TEMPLATE_URL = 'https://github.com/akfc58/tanstarter-liang.git';
 export const CLOUDFLARE_DOCS_URL = 'https://docs.tanstarter.dev/docs/cloudflare';
