@@ -19,7 +19,7 @@ npm link
 然后进入你想创建新项目的目录，运行：
 
 ```bash
-export CLOUDFLARE_ACCOUNT_ID="..."
+export CLOUDFLARE_ACCOUNT_ID="..." # 此处最好使用 keychain
 export CLOUDFLARE_API_TOKEN="..."
 
 tanstarter create
