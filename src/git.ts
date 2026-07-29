@@ -45,6 +45,7 @@ export function initializeGit(targetDir: string): void {
   }
 
   configureTemplateUpstream(targetDir);
+  configureSafePushDefaults(targetDir);
   runInheritedRaw('git', ['add', '.'], targetDir);
 }
 
@@ -173,6 +174,41 @@ function configureTemplateUpstream(cwd: string): void {
     ['remote', 'add', 'upstream', DEFAULT_TEMPLATE_URL],
     cwd
   );
+}
+
+function configureSafePushDefaults(cwd: string): void {
+  const branch = getCurrentBranch(cwd);
+
+  runInheritedRaw('git', ['config', 'remote.pushDefault', 'origin'], cwd);
+  runInheritedRaw('git', ['config', 'push.default', 'current'], cwd);
+  runInheritedRaw(
+    'git',
+    ['config', `branch.${branch}.pushRemote`, 'origin'],
+    cwd
+  );
+  runInheritedRaw(
+    'git',
+    ['config', 'remote.upstream.pushurl', 'DISABLED'],
+    cwd
+  );
+}
+
+function getCurrentBranch(cwd: string): string {
+  const result = spawnSync('git', ['branch', '--show-current'], {
+    cwd,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  const branch =
+    result.status === 0 && typeof result.stdout === 'string'
+      ? result.stdout.trim()
+      : '';
+
+  if (!branch) {
+    throw new Error('Could not resolve the current Git branch.');
+  }
+
+  return branch;
 }
 
 function getGitRemoteUrl(cwd: string, remote: string): string {

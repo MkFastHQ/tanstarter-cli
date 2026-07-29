@@ -381,6 +381,18 @@ describe('Git initialization', () => {
     expect(runGit(targetDir, ['remote', 'get-url', 'upstream'])).toBe(
       DEFAULT_TEMPLATE_URL
     );
+    expect(runGit(targetDir, ['remote', 'get-url', '--push', 'upstream'])).toBe(
+      'DISABLED'
+    );
+    expect(runGit(targetDir, ['config', '--get', 'remote.pushDefault'])).toBe(
+      'origin'
+    );
+    expect(runGit(targetDir, ['config', '--get', 'push.default'])).toBe(
+      'current'
+    );
+    expect(
+      runGit(targetDir, ['config', '--get', 'branch.main.pushRemote'])
+    ).toBe('origin');
     expect(runGit(targetDir, ['status', '--short', '.gitignore'])).toBe(
       'M  .gitignore'
     );
@@ -407,6 +419,70 @@ describe('Git initialization', () => {
     expect(runGit(targetDir, ['remote', 'get-url', 'upstream'])).toBe(
       DEFAULT_TEMPLATE_URL
     );
+  });
+
+  it('pushes the current branch to origin instead of upstream by default', () => {
+    const rootDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'tanstarter-push-target-')
+    );
+    const seedDir = path.join(rootDir, 'seed');
+    const templateDir = path.join(rootDir, 'template.git');
+    const productDir = path.join(rootDir, 'product.git');
+    const targetDir = path.join(rootDir, 'project');
+
+    fs.mkdirSync(seedDir);
+    runGit(seedDir, ['init', '-b', 'main']);
+    fs.writeFileSync(path.join(seedDir, 'README.md'), '# Template\n', 'utf8');
+    fs.writeFileSync(path.join(seedDir, '.gitignore'), 'node_modules\n', 'utf8');
+    runGit(seedDir, ['add', '.']);
+    runGit(seedDir, [
+      '-c',
+      'user.name=TanStarter Test',
+      '-c',
+      'user.email=test@example.com',
+      'commit',
+      '-m',
+      'template base',
+    ]);
+    const templateHead = runGit(seedDir, ['rev-parse', 'HEAD']);
+
+    runGit(rootDir, ['init', '--bare', templateDir]);
+    runGit(seedDir, ['remote', 'add', 'template', templateDir]);
+    runGit(seedDir, ['push', 'template', 'main']);
+    runGit(rootDir, [
+      '--git-dir',
+      templateDir,
+      'symbolic-ref',
+      'HEAD',
+      'refs/heads/main',
+    ]);
+    runGit(rootDir, ['init', '--bare', productDir]);
+    runGit(rootDir, ['clone', '--origin', 'upstream', templateDir, targetDir]);
+
+    initializeGit(targetDir);
+    runGit(targetDir, ['remote', 'set-url', 'upstream', templateDir]);
+    runGit(targetDir, ['remote', 'add', 'origin', productDir]);
+    fs.writeFileSync(path.join(targetDir, 'product.txt'), 'MkExt\n', 'utf8');
+    runGit(targetDir, ['add', '.']);
+    runGit(targetDir, [
+      '-c',
+      'user.name=TanStarter Test',
+      '-c',
+      'user.email=test@example.com',
+      'commit',
+      '-m',
+      'product change',
+    ]);
+    const productHead = runGit(targetDir, ['rev-parse', 'HEAD']);
+
+    runGit(targetDir, ['push']);
+
+    expect(runGit(rootDir, ['--git-dir', productDir, 'rev-parse', 'main'])).toBe(
+      productHead
+    );
+    expect(
+      runGit(rootDir, ['--git-dir', templateDir, 'rev-parse', 'main'])
+    ).toBe(templateHead);
   });
 });
 
