@@ -36,7 +36,7 @@
     "build": "tsc",
     "check": "tsc --noEmit",
     "dev": "tsx src/index.ts",
-    "test": "vitest run",
+    "test": "vitest run test/index.test.ts",
     "prepublishOnly": "pnpm run build",
     "release:dry": "npm publish --dry-run",
     "release": "npm publish"

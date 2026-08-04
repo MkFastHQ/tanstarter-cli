@@ -4,14 +4,38 @@ import path from 'node:path';
 import process from 'node:process';
 
 import type { RuntimeConfig } from './types.js';
+import { normalizePemForEnv } from './waffo.js';
+
+const WAFFO_ENV_KEYS = [
+  'WAFFO_DEBUG',
+  'WAFFO_MERCHANT_ID',
+  'WAFFO_PRIVATE_KEY',
+  'WAFFO_STORE_ID',
+  'VITE_WAFFO_PRODUCT_PRO_MONTHLY',
+  'VITE_WAFFO_PRODUCT_PRO_YEARLY',
+  'VITE_WAFFO_PRODUCT_LIFETIME',
+] as const;
 
 export function ensureEnvFiles(config: RuntimeConfig): void {
   const processEnvValues = getProcessEnvValuesFromExample(config.targetDir);
+  delete processEnvValues.VITE_PAYMENT_PROVIDER;
+  for (const key of WAFFO_ENV_KEYS) {
+    delete processEnvValues[key];
+  }
   const sharedValues: Record<string, string> = {
     CLOUDFLARE_ACCOUNT_ID: config.cloudflareAccountId,
     CLOUDFLARE_API_TOKEN: config.cloudflareApiToken,
     CLOUDFLARE_DATABASE_ID: config.d1DatabaseId,
+    VITE_PAYMENT_PROVIDER:
+      config.paymentProvider === 'waffo' ? 'waffo' : '',
   };
+  if (config.paymentProvider === 'waffo') {
+    Object.assign(sharedValues, waffoEnvValues(config));
+  } else {
+    for (const key of WAFFO_ENV_KEYS) {
+      sharedValues[key] = '';
+    }
+  }
 
   for (const envFile of ['.env', '.env.production']) {
     const envPath = path.join(config.targetDir, envFile);
@@ -33,6 +57,22 @@ export function ensureEnvFiles(config: RuntimeConfig): void {
       BETTER_AUTH_SECRET: betterAuthSecret,
     });
   }
+}
+
+function waffoEnvValues(config: RuntimeConfig): Record<string, string> {
+  const productIds = config.waffoProductIds;
+  return {
+    VITE_PAYMENT_PROVIDER: 'waffo',
+    // The deployed Worker intentionally stays in Waffo test mode. WAFFO_DEBUG
+    // makes it verify and accept test webhooks.
+    WAFFO_DEBUG: 'true',
+    WAFFO_MERCHANT_ID: config.waffoMerchantId,
+    WAFFO_PRIVATE_KEY: normalizePemForEnv(config.waffoPrivateKey),
+    WAFFO_STORE_ID: config.waffoStoreId,
+    VITE_WAFFO_PRODUCT_PRO_MONTHLY: productIds.proMonthly,
+    VITE_WAFFO_PRODUCT_PRO_YEARLY: productIds.proYearly,
+    VITE_WAFFO_PRODUCT_LIFETIME: productIds.lifetime,
+  };
 }
 
 function getProductionBaseUrl(config: RuntimeConfig): string {

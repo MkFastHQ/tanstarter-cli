@@ -138,6 +138,8 @@ function spawnWithConfig(
       CLOUDFLARE_ACCOUNT_ID: config.cloudflareAccountId,
       CLOUDFLARE_API_TOKEN: config.cloudflareApiToken,
       CLOUDFLARE_DATABASE_ID: config.d1DatabaseId,
+      WAFFO_MERCHANT_ID: config.waffoMerchantId,
+      WAFFO_PRIVATE_KEY: config.waffoPrivateKey,
     },
     stdio,
     maxBuffer: 64 * 1024 * 1024,

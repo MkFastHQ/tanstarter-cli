@@ -12,9 +12,18 @@ export function cloneTemplate(targetDir: string, resume: boolean): void {
     throw new Error('Project directory is not set; cannot clone template.');
   }
 
-  if (resume && fs.existsSync(targetDir)) {
+  if (resume && fs.existsSync(path.join(targetDir, '.git'))) {
     console.log('Project directory already exists; skipping clone.');
     return;
+  }
+
+  if (resume && fs.existsSync(targetDir)) {
+    const entries = fs.readdirSync(targetDir);
+    if (entries.length > 0) {
+      throw new Error(
+        `Cannot resume cloning because the project directory is incomplete: ${targetDir}. Remove only this incomplete directory and rerun create.`
+      );
+    }
   }
 
   if (fs.existsSync(targetDir)) {

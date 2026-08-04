@@ -12,13 +12,18 @@ Usage:
 Options:
   --repo <owner/name>     Create or use this GitHub repo
   --domain <domain>       Cloudflare custom domain route
+  --payment <none|waffo>  Payment method for the generated project
   --resume                Resume a failed setup with tanstarter create <project-name> --resume
   -h, --help              Show help
   -v, --version           Show version
 
 Required environment:
   CLOUDFLARE_ACCOUNT_ID
-  CLOUDFLARE_API_TOKEN`);
+  CLOUDFLARE_API_TOKEN
+
+Required environment (when using --payment waffo):
+  WAFFO_MERCHANT_ID
+  WAFFO_PRIVATE_KEY`);
 }
 
 export function printVersion(): void {

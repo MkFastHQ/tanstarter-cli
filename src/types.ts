@@ -1,9 +1,21 @@
+export type PaymentProvider = 'none' | 'waffo';
+export type WaffoProductType = 'onetime' | 'subscription';
+export type WaffoBillingPeriod = 'monthly' | 'yearly';
+export type WaffoProductSlot = 'lifetime' | 'proMonthly' | 'proYearly';
+
+export interface WaffoProductIds {
+  proMonthly: string;
+  proYearly: string;
+  lifetime: string;
+}
+
 export interface CliOptions {
   command: 'create' | 'delete';
   projectName: string;
   targetDir: string;
   domain: string;
   githubRepo?: string;
+  payment?: PaymentProvider;
   resume: boolean;
 }
 
@@ -21,6 +33,14 @@ export interface RuntimeConfig {
   r2BucketName: string;
   kvNamespaceName: string;
   kvNamespaceId: string;
+  paymentProvider: PaymentProvider;
+  waffoSetupId: string;
+  waffoMerchantId: string;
+  waffoPrivateKey: string;
+  waffoStoreName: string;
+  waffoStoreId: string;
+  waffoProductIds: WaffoProductIds;
+  waffoWebhookId: string;
 }
 
 export interface SetupState {

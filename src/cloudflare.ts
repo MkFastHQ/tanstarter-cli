@@ -99,6 +99,99 @@ export function deleteWorker(config: RuntimeConfig): void {
   );
 }
 
+/**
+ * Confirm that a custom hostname belongs to this Worker.
+ *
+ * Wrangler normally provisions the binding from `routes[].custom_domain`.
+ * Keeping this API call in the resumable workflow makes the desired binding
+ * explicit and lets a resume repair a binding that was not created during an
+ * earlier deploy.
+ */
+export async function ensureWorkerCustomDomain(
+  config: RuntimeConfig
+): Promise<void> {
+  if (!config.domain) return;
+
+  const zone = await findCloudflareZone(config, config.domain);
+  if (!zone) {
+    throw new Error(
+      [
+        `Cloudflare zone for ${config.domain} was not found in account ${config.cloudflareAccountId}.`,
+        'Make sure the domain is active in this Cloudflare account, then rerun with --resume.',
+      ].join('\n')
+    );
+  }
+
+  const existing = await getWorkerCustomDomain(config, config.domain);
+  if (existing && existing.service !== config.projectName) {
+    throw new Error(
+      [
+        `Cloudflare custom domain ${config.domain} is already attached to Worker ${existing.service}.`,
+        `It cannot be attached to ${config.projectName} automatically. Choose another domain or remove the existing binding first.`,
+      ].join('\n')
+    );
+  }
+
+  const result = await cloudflareRequest<CloudflareWorkerCustomDomain>(
+    config,
+    'PUT',
+    `/accounts/${encodeURIComponent(config.cloudflareAccountId)}/workers/domains`,
+    {
+      hostname: config.domain,
+      service: config.projectName,
+      zone_id: zone.id,
+      zone_name: zone.name,
+    }
+  );
+
+  if (!result.result?.enabled) {
+    throw new Error(
+      [
+        `Cloudflare accepted ${config.domain}, but the custom-domain binding is not enabled yet.`,
+        'Wait for Cloudflare to finish provisioning DNS and the certificate, then rerun with --resume.',
+      ].join('\n')
+    );
+  }
+
+  console.log(
+    `Cloudflare custom domain ${config.domain} is attached to Worker ${config.projectName}.`
+  );
+}
+
+async function getWorkerCustomDomain(
+  config: RuntimeConfig,
+  hostname: string
+): Promise<CloudflareWorkerCustomDomain | undefined> {
+  const params = new URLSearchParams({ hostname });
+  const response = await cloudflareRequest<CloudflareWorkerCustomDomain[]>(
+    config,
+    'GET',
+    `/accounts/${encodeURIComponent(config.cloudflareAccountId)}/workers/domains?${params.toString()}`
+  );
+  return response.result.find((domain) => domain.hostname === hostname);
+}
+
+async function findCloudflareZone(
+  config: RuntimeConfig,
+  hostname: string
+): Promise<CloudflareZone | undefined> {
+  const params = new URLSearchParams({
+    'account.id': config.cloudflareAccountId,
+    per_page: '1000',
+  });
+  const response = await cloudflareRequest<CloudflareZone[]>(
+    config,
+    'GET',
+    `/zones?${params.toString()}`
+  );
+
+  return response.result
+    .filter(
+      (zone) => hostname === zone.name || hostname.endsWith(`.${zone.name}`)
+    )
+    .sort((left, right) => right.name.length - left.name.length)[0];
+}
+
 export async function deleteR2(config: RuntimeConfig): Promise<void> {
   await emptyR2Bucket(config);
   runCommandAndEcho(
@@ -208,20 +301,30 @@ export function buildR2ObjectPath(config: RuntimeConfig, key: string): string {
 async function cloudflareRequest<T = unknown>(
   config: RuntimeConfig,
   method: string,
-  path: string
+  path: string,
+  body?: unknown
 ): Promise<CloudflareApiResponse<T>> {
-  const response = await fetch(`https://api.cloudflare.com/client/v4${path}`, {
+  const request: RequestInit = {
     method,
     headers: {
       Authorization: `Bearer ${config.cloudflareApiToken}`,
+      ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
     },
-  });
-  const body = (await response.json().catch(() => undefined)) as
+  };
+  if (body !== undefined) request.body = JSON.stringify(body);
+
+  const response = await fetch(
+    `https://api.cloudflare.com/client/v4${path}`,
+    request
+  );
+  const responseBody = (await response.json().catch(() => undefined)) as
     | CloudflareApiResponse<T>
     | undefined;
 
-  if (!response.ok || body?.success === false) {
-    const errors = body?.errors?.map((error) => error.message).join('; ');
+  if (!response.ok || responseBody?.success === false) {
+    const errors = responseBody?.errors
+      ?.map((error) => error.message)
+      .join('; ');
     throw new Error(
       `Cloudflare API ${method} ${path} failed: ${
         errors || response.statusText || response.status
@@ -229,7 +332,7 @@ async function cloudflareRequest<T = unknown>(
     );
   }
 
-  return body as CloudflareApiResponse<T>;
+  return responseBody as CloudflareApiResponse<T>;
 }
 
 interface R2ObjectListResponse {
@@ -240,4 +343,15 @@ interface CloudflareApiResponse<T> {
   success: boolean;
   result: T;
   errors?: Array<{ message: string }>;
+}
+
+interface CloudflareZone {
+  id: string;
+  name: string;
+}
+
+interface CloudflareWorkerCustomDomain {
+  hostname: string;
+  service: string;
+  enabled: boolean;
 }

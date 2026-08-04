@@ -36,6 +36,19 @@ export function preflight(config: RuntimeConfig): void {
   console.log(
     `✓ CLOUDFLARE_API_TOKEN=${maskSecret(config.cloudflareApiToken)}`
   );
+
+  if (config.paymentProvider === 'waffo') {
+    if (config.waffoMerchantId && config.waffoPrivateKey) {
+      console.log(`✓ WAFFO_MERCHANT_ID=${config.waffoMerchantId}`);
+      console.log(
+        `✓ WAFFO_PRIVATE_KEY=${maskSecret(config.waffoPrivateKey)}`
+      );
+    } else {
+      console.log(
+        '⚠ WAFFO_MERCHANT_ID and WAFFO_PRIVATE_KEY are not set; Waffo store setup will require them.'
+      );
+    }
+  }
 }
 
 function ensureRequiredCommands(): void {
