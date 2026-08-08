@@ -1,6 +1,6 @@
 {
   "name": "tanstarter-cli",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "description": "Create a TanStarter app from the template and deploy it to Cloudflare Workers in about 10 minutes.",
   "type": "module",
   "license": "MIT",
