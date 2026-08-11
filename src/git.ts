@@ -12,9 +12,18 @@ export function cloneTemplate(targetDir: string, resume: boolean): void {
     throw new Error('Project directory is not set; cannot clone template.');
   }
 
-  if (resume && fs.existsSync(targetDir)) {
+  if (resume && fs.existsSync(path.join(targetDir, '.git'))) {
     console.log('Project directory already exists; skipping clone.');
     return;
+  }
+
+  if (resume && fs.existsSync(targetDir)) {
+    const entries = fs.readdirSync(targetDir);
+    if (entries.length > 0) {
+      throw new Error(
+        `Cannot resume cloning because the project directory is incomplete: ${targetDir}. Remove only this incomplete directory and rerun create.`
+      );
+    }
   }
 
   if (fs.existsSync(targetDir)) {
@@ -24,7 +33,13 @@ export function cloneTemplate(targetDir: string, resume: boolean): void {
     }
   }
 
-  const args = ['clone', '--depth', '1', DEFAULT_TEMPLATE_URL, targetDir];
+  const args = [
+    'clone',
+    '--origin',
+    'upstream',
+    DEFAULT_TEMPLATE_URL,
+    targetDir,
+  ];
   runInheritedRaw('git', args, process.cwd());
 }
 
@@ -32,11 +47,14 @@ export function initializeGit(targetDir: string): void {
   ensureGitignoreEntry(targetDir, STATE_DIR);
 
   const gitDir = path.join(targetDir, '.git');
-  if (fs.existsSync(gitDir)) {
-    fs.rmSync(gitDir, { recursive: true, force: true });
+  if (!fs.existsSync(gitDir)) {
+    throw new Error(
+      'Template Git history is missing; cannot configure the upstream remote.'
+    );
   }
 
-  runInheritedRaw('git', ['init'], targetDir);
+  configureTemplateUpstream(targetDir);
+  configureSafePushDefaults(targetDir);
   runInheritedRaw('git', ['add', '.'], targetDir);
 }
 
@@ -140,6 +158,80 @@ function gitRemoteExists(cwd: string, remote: string): boolean {
     stdio: 'ignore',
   });
   return result.status === 0;
+}
+
+function configureTemplateUpstream(cwd: string): void {
+  if (gitRemoteExists(cwd, 'upstream')) {
+    runInheritedRaw(
+      'git',
+      ['remote', 'set-url', 'upstream', DEFAULT_TEMPLATE_URL],
+      cwd
+    );
+    return;
+  }
+
+  if (
+    gitRemoteExists(cwd, 'origin') &&
+    getGitRemoteUrl(cwd, 'origin') === DEFAULT_TEMPLATE_URL
+  ) {
+    runInheritedRaw('git', ['remote', 'rename', 'origin', 'upstream'], cwd);
+    return;
+  }
+
+  runInheritedRaw(
+    'git',
+    ['remote', 'add', 'upstream', DEFAULT_TEMPLATE_URL],
+    cwd
+  );
+}
+
+function configureSafePushDefaults(cwd: string): void {
+  const branch = getCurrentBranch(cwd);
+
+  runInheritedRaw('git', ['config', 'remote.pushDefault', 'origin'], cwd);
+  runInheritedRaw('git', ['config', 'push.default', 'current'], cwd);
+  runInheritedRaw(
+    'git',
+    ['config', `branch.${branch}.pushRemote`, 'origin'],
+    cwd
+  );
+  runInheritedRaw(
+    'git',
+    ['config', 'remote.upstream.pushurl', 'DISABLED'],
+    cwd
+  );
+}
+
+function getCurrentBranch(cwd: string): string {
+  const result = spawnSync('git', ['branch', '--show-current'], {
+    cwd,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  const branch =
+    result.status === 0 && typeof result.stdout === 'string'
+      ? result.stdout.trim()
+      : '';
+
+  if (!branch) {
+    throw new Error('Could not resolve the current Git branch.');
+  }
+
+  return branch;
+}
+
+function getGitRemoteUrl(cwd: string, remote: string): string {
+  const result = spawnSync('git', ['remote', 'get-url', remote], {
+    cwd,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+
+  if (result.status !== 0 || typeof result.stdout !== 'string') {
+    throw new Error(`Could not resolve Git remote ${remote}.`);
+  }
+
+  return result.stdout.trim();
 }
 
 function hasGitChanges(cwd: string): boolean {

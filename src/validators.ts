@@ -16,9 +16,25 @@ export function validateSlug(value: string, label: string): void {
 }
 
 export function validateDomain(value: string): void {
-  if (!/^[a-z0-9][a-z0-9.-]*[a-z0-9]$/i.test(value)) {
+  const domain = normalizeDomain(value);
+  if (
+    domain.length > 253 ||
+    !domain.includes('.') ||
+    !domain
+      .split('.')
+      .every(
+        (label) =>
+          label.length >= 1 &&
+          label.length <= 63 &&
+          /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(label)
+      )
+  ) {
     throw new Error('--domain must be a valid domain name.');
   }
+}
+
+export function normalizeDomain(value: string): string {
+  return value.trim().replace(/\.+$/, '').toLowerCase();
 }
 
 export function validateGithubRepo(value: string): void {

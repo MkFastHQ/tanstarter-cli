@@ -1,6 +1,6 @@
 {
   "name": "tanstarter-cli",
-  "version": "1.3.0",
+  "version": "1.3.3",
   "description": "Create a TanStarter app from the template and deploy it to Cloudflare Workers in about 10 minutes.",
   "type": "module",
   "license": "MIT",
@@ -36,7 +36,7 @@
     "build": "tsc",
     "check": "tsc --noEmit",
     "dev": "tsx src/index.ts",
-    "test": "vitest run",
+    "test": "vitest run test/index.test.ts",
     "prepublishOnly": "pnpm run build",
     "release:dry": "npm publish --dry-run",
     "release": "npm publish"

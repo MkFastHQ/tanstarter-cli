@@ -3,13 +3,23 @@ import { createInterface } from 'node:readline/promises';
 import path from 'node:path';
 import process from 'node:process';
 
-import type { CliOptions, RuntimeConfig } from './types.js';
+import { WAFFO_DOCS_URL } from './constants.js';
+import type {
+  CliOptions,
+  PaymentProvider,
+  RuntimeConfig,
+} from './types.js';
 import {
+  normalizeDomain,
   normalizeSlug,
   validateDomain,
   validateGithubRepo,
   validateSlug,
 } from './validators.js';
+import {
+  WAFFO_TEMPLATE_PRODUCTS,
+  waffoStoreNameForProject,
+} from './waffo.js';
 
 export async function configureSetup(
   options: CliOptions,
@@ -46,6 +56,28 @@ async function promptForMissingOptions(
     githubRepo = getDefaultGithubRepo(nextConfig.projectName, nextConfig.githubRepo);
   }
 
+  let paymentProvider: PaymentProvider = nextConfig.paymentProvider;
+  if (!options.payment) {
+    paymentProvider = await askPaymentProvider(rl);
+  }
+
+  if (paymentProvider === 'waffo') {
+    requireWaffoCredentials();
+    nextConfig = {
+      ...nextConfig,
+      paymentProvider,
+      waffoStoreName: waffoStoreNameForProject(nextConfig.projectName),
+    };
+    if (!options.domain) {
+      domain = await askDomain(rl, true);
+    }
+  } else {
+    nextConfig = { ...nextConfig, paymentProvider };
+    if (!options.domain) {
+      domain = await askDomain(rl, false);
+    }
+  }
+
   const d1DatabaseName = await askResourceName(
     rl,
     'D1 database',
@@ -62,10 +94,6 @@ async function promptForMissingOptions(
     nextConfig.kvNamespaceName
   );
 
-  if (!options.domain) {
-    domain = await askDomain(rl);
-  }
-
   if (!options.githubRepo) {
     githubRepo = await askGithubRepo(rl, githubRepo);
   }
@@ -78,6 +106,31 @@ async function promptForMissingOptions(
     r2BucketName,
     kvNamespaceName,
   };
+}
+
+function requireWaffoCredentials(): void {
+  if (!process.env.WAFFO_MERCHANT_ID?.trim() || !process.env.WAFFO_PRIVATE_KEY) {
+    throw new Error(
+      [
+        'WAFFO_MERCHANT_ID and WAFFO_PRIVATE_KEY are required for Waffo payment.',
+        `Waffo API key setup docs: ${WAFFO_DOCS_URL}`,
+        'Export both variables and run tanstarter create again.',
+      ].join('\n')
+    );
+  }
+}
+
+async function askPaymentProvider(
+  rl: ReturnType<typeof createInterface>
+): Promise<PaymentProvider> {
+  while (true) {
+    const answer = await rl.question(
+      '\nPayment method (none/waffo, default: none): '
+    );
+    const value = answer.trim().toLowerCase() || 'none';
+    if (value === 'none' || value === 'waffo') return value;
+    console.log('Payment method must be none or waffo.');
+  }
 }
 
 async function askProjectName(
@@ -105,6 +158,7 @@ function applyProjectName(
     projectName,
     targetDir: path.resolve(process.cwd(), projectName),
     githubRepo: config.githubRepo || projectName,
+    waffoStoreName: waffoStoreNameForProject(projectName),
     d1DatabaseName: projectName,
     r2BucketName: projectName,
     kvNamespaceName: projectName,
@@ -153,8 +207,30 @@ async function confirmSetup(
   console.log(`  D1 database: ${config.d1DatabaseName}`);
   console.log(`  R2 bucket: ${config.r2BucketName}`);
   console.log(`  KV namespace: ${config.kvNamespaceName}`);
-  console.log(`  Domain: ${config.domain || '(none)'}`);
+  console.log(
+    `  Domain: ${config.domain || '(none; workers.dev fallback after deploy)'}`
+  );
   console.log(`  GitHub repo: ${config.githubRepo}`);
+  if (config.paymentProvider === 'waffo') {
+    console.log('  Payment: Waffo');
+    console.log('  Waffo mode: test (WAFFO_DEBUG=true)');
+    console.log(`  Waffo store: ${config.waffoStoreName}`);
+    for (const product of WAFFO_TEMPLATE_PRODUCTS) {
+      const billingLabel = product.billingPeriod
+        ? `, ${product.billingPeriod}`
+        : '';
+      console.log(
+        `  Waffo product: ${product.name} ($${product.price} USD${billingLabel})`
+      );
+    }
+    console.log(
+      `  Waffo webhook: ${
+        config.domain
+          ? `https://${config.domain}/api/webhooks/waffo`
+          : 'deployed workers.dev URL/api/webhooks/waffo'
+      }`
+    );
+  }
 
   const answer = await rl.question(
     '\nPress Enter to continue, or type n to cancel [Y/n]: '
@@ -165,13 +241,16 @@ async function confirmSetup(
 }
 
 async function askDomain(
-  rl: ReturnType<typeof createInterface>
+  rl: ReturnType<typeof createInterface>,
+  isWaffo: boolean
 ): Promise<string> {
   while (true) {
     const answer = await rl.question(
-      '\nCustom domain (optional, press Enter to skip): '
+      isWaffo
+        ? '\nCustom domain (optional; Waffo will use the deployed workers.dev URL if omitted): '
+        : '\nCustom domain (optional, press Enter to use workers.dev): '
     );
-    const domain = answer.trim();
+    const domain = normalizeDomain(answer);
     if (!domain) return '';
 
     try {

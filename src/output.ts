@@ -1,4 +1,9 @@
 import type { RuntimeConfig } from './types.js';
+import { getPublicBaseUrl } from './deployment.js';
+import {
+  buildWaffoWebhookUrl,
+  WAFFO_TEMPLATE_PRODUCTS,
+} from './waffo.js';
 
 const BOX_WIDTH = 96;
 
@@ -17,8 +22,12 @@ export function printWelcomeBanner(): void {
   ]);
 }
 
-export function printStep(index: number, total: number, title: string): void {
-  printBox([`🚀 Step ${index}/${total}: ${title}`]);
+export function printStep(
+  index: number,
+  total: number | undefined,
+  title: string
+): void {
+  printBox([`🚀 ${total ? `Step ${index}/${total}` : `Step ${index}`}: ${title}`]);
 }
 
 export function printCompletedStep(title: string): void {
@@ -40,6 +49,25 @@ export function printFinalSummary(config: RuntimeConfig): void {
     `GitHub: ${githubUrl}`,
     `Delete: npx tanstarter-cli@latest delete ${config.projectName}`,
   ]);
+  if (config.paymentProvider === 'waffo') {
+    const publicBaseUrl = getPublicBaseUrl(config);
+    const productIds = config.waffoProductIds;
+    printBox([
+      '💳 Waffo payment (test)',
+      '⚠ Test transactions only.',
+      '',
+      `Store: ${config.waffoStoreId || '(not created)'}`,
+      ...WAFFO_TEMPLATE_PRODUCTS.map(
+        (product) =>
+          `${product.name}: ${productIds[product.slot] || '(not created)'}`
+      ),
+      `Webhook: ${
+        publicBaseUrl
+          ? buildWaffoWebhookUrl(publicBaseUrl)
+          : '(not registered)'
+      }`,
+    ]);
+  }
 }
 
 function printBox(lines: string[]): void {
