@@ -27,6 +27,14 @@ npx tanstarter-cli@latest create my-app --yes
 
 ## Install
 
+### Agent skill
+
+Install the TanStarter creation skill for Codex, Claude Code, or another supported agent:
+
+```bash
+npx skills add MkFastHQ/tanstarter-cli --skill tanstarter-create
+```
+
 Run without installing:
 
 ```bash
