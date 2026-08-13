@@ -16,6 +16,7 @@ export interface CliOptions {
   domain: string;
   githubRepo?: string;
   payment?: PaymentProvider;
+  acceptDefaults: boolean;
   resume: boolean;
 }
 

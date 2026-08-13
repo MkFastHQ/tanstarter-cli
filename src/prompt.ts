@@ -33,7 +33,9 @@ export async function configureSetup(
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   try {
     const nextConfig = await promptForMissingOptions(rl, options, config);
-    await confirmSetup(rl, nextConfig);
+    if (!options.acceptDefaults) {
+      await confirmSetup(rl, nextConfig);
+    }
     return nextConfig;
   } finally {
     rl.close();
@@ -59,6 +61,19 @@ async function promptForMissingOptions(
   let paymentProvider: PaymentProvider = nextConfig.paymentProvider;
   if (!options.payment) {
     paymentProvider = await askPaymentProvider(rl);
+  }
+
+  if (options.acceptDefaults) {
+    if (paymentProvider === 'waffo') {
+      requireWaffoCredentials();
+      return {
+        ...nextConfig,
+        paymentProvider,
+        githubRepo,
+        waffoStoreName: waffoStoreNameForProject(nextConfig.projectName),
+      };
+    }
+    return { ...nextConfig, paymentProvider, githubRepo };
   }
 
   if (paymentProvider === 'waffo') {

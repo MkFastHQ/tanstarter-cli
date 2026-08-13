@@ -124,6 +124,7 @@ describe('parseArgs', () => {
       '--repo',
       'mkfasthq/demo-app',
       '--resume',
+      '--yes',
     ]);
 
     expect(options).toMatchObject({
@@ -131,8 +132,15 @@ describe('parseArgs', () => {
       domain: 'demo.example.com',
       githubRepo: 'mkfasthq/demo-app',
       resume: true,
+      acceptDefaults: true,
     });
     expect(options.targetDir).toBe(`${process.cwd()}/demo-app`);
+  });
+
+  it('parses the short accept-defaults flag', () => {
+    expect(parseArgs(['create', 'demo-app', '-y'])).toMatchObject({
+      acceptDefaults: true,
+    });
   });
 
   it('parses the delete command', () => {

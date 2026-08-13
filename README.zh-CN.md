@@ -19,6 +19,12 @@ npx tanstarter-cli@latest create
 
 TanStarter CLI 会在真正创建资源之前询问项目名称、资源名称和支付方式。选择 Waffo 后，它会自动创建 Waffo 门店、模板内置的三个产品和 Webhook。
 
+若希望保留支付方式提问、但自动接受其余默认值（域名、D1/R2/KV 名称、GitHub 仓库与最终确认），传入 `--yes`：
+
+```bash
+npx tanstarter-cli@latest create my-app --yes
+```
+
 ## 安装
 
 不安装，直接运行：
@@ -51,6 +57,7 @@ tanstarter create <project-name> --resume
 
 - `--domain <domain>`：配置 Cloudflare 自定义域名路由。
 - `--payment <none|waffo>`：生成项目的支付方式。选择 `waffo` 时，CLI 使用模板内置的月付、年付和一次性产品，并在初始化过程中自动创建 Waffo 门店、产品和 Webhook。
+- `-y, --yes`：自动接受默认域名、资源名称、GitHub 仓库和最终确认。除非已传入 `--payment`，否则仍会询问支付方式。
 - `--repo <owner/name>`：创建指定的 GitHub 仓库。如果省略，TanStarter CLI 会默认使用当前 GitHub CLI 登录账号和项目名，例如 `open-fox/my-app`。
 - `--resume`：从 `.tanstarter/state.json` 继续一次失败的初始化流程。
 - `-h, --help`：显示帮助信息。

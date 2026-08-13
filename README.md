@@ -19,6 +19,12 @@ npx tanstarter-cli@latest create
 
 TanStarter CLI will ask for the project name, resource names, and payment method before creating anything. When you pick Waffo, it also creates a Waffo store, the three template products, and the webhook automatically.
 
+To keep the payment prompt but accept every other default (domain, D1/R2/KV names, GitHub repository, and final confirmation), pass `--yes`:
+
+```bash
+npx tanstarter-cli@latest create my-app --yes
+```
+
 ## Install
 
 Run without installing:
@@ -51,6 +57,7 @@ Options:
 
 - `--domain <domain>`: configure a Cloudflare custom domain route.
 - `--payment <none|waffo>`: payment method for the generated project. With `waffo`, the CLI uses the template's built-in monthly, yearly, and lifetime products, then creates the Waffo store, products, and webhook during setup.
+- `-y, --yes`: accept default domain, resource names, GitHub repository, and final confirmation. It still asks for payment unless `--payment` is set.
 - `--repo <owner/name>`: create this GitHub repository. If omitted, TanStarter CLI defaults to the current GitHub CLI login and project name, for example `open-fox/my-app`.
 - `--resume`: continue a failed setup from `.tanstarter/state.json`.
 - `-h, --help`: show help.

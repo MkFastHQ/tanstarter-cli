@@ -12,6 +12,7 @@ export function parseArgs(args: string[]): CliOptions {
   let domain = '';
   let githubRepo: string | undefined;
   let payment: PaymentProvider | undefined;
+  let acceptDefaults = false;
   let resume = false;
 
   for (let index = 0; index < args.length; index++) {
@@ -28,6 +29,10 @@ export function parseArgs(args: string[]): CliOptions {
     }
     if (arg === '--resume') {
       resume = true;
+      continue;
+    }
+    if (arg === '-y' || arg === '--yes') {
+      acceptDefaults = true;
       continue;
     }
     if (arg === 'create') {
@@ -106,6 +111,7 @@ export function parseArgs(args: string[]): CliOptions {
     domain,
     ...(githubRepo ? { githubRepo } : {}),
     ...(payment ? { payment } : {}),
+    acceptDefaults,
     resume,
   };
 }
