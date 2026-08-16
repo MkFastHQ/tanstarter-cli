@@ -7,7 +7,10 @@ const DEPLOYMENT_RETRY_DELAYS_MS = [
   10_000,
   15_000,
   30_000,
-  30_000,
+  60_000,
+  60_000,
+  60_000,
+  60_000,
 ] as const;
 
 export interface DeploymentVerificationOptions {
@@ -65,6 +68,9 @@ export async function verifyPublicDeployment(
 
     const retryDelay = retryDelaysMs[attempt - 1];
     if (retryDelay !== undefined) {
+      console.warn(
+        `Public deployment URL check failed (${lastFailure}); retrying in ${retryDelay / 1000}s (${attempt + 1}/${maxAttempts}).`
+      );
       await sleep(retryDelay);
     }
   }
