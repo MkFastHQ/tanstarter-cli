@@ -1091,7 +1091,7 @@ describe('Waffo env file writing', () => {
     expect(production).toContain(
       "WAFFO_PRIVATE_KEY='-----BEGIN PRIVATE KEY-----\\nMIIE...\\n-----END PRIVATE KEY-----'"
     );
-    expect(production).toContain("WAFFO_STORE_ID='STO_test'");
+    expect(production).not.toContain('WAFFO_STORE_ID=');
     expect(production).toContain("VITE_WAFFO_PRODUCT_PRO_YEARLY='PROD_test'");
     expect(production).toContain("VITE_WAFFO_PRODUCT_PRO_MONTHLY='PROD_monthly'");
     expect(production).toContain("VITE_WAFFO_PRODUCT_LIFETIME='PROD_lifetime'");
@@ -1099,6 +1099,36 @@ describe('Waffo env file writing', () => {
     const local = fs.readFileSync(path.join(config.targetDir, '.env'), 'utf8');
     expect(local).toContain("VITE_PAYMENT_PROVIDER='waffo'");
     expect(local).toContain("WAFFO_PRIVATE_KEY='-----BEGIN PRIVATE KEY-----\\nMIIE...\\n-----END PRIVATE KEY-----'");
+    expect(local).not.toContain('WAFFO_STORE_ID=');
+  });
+
+  it('removes the obsolete store ID from existing env files', () => {
+    const config = createTestConfig({
+      paymentProvider: 'waffo',
+      waffoMerchantId: 'MER_test',
+      waffoPrivateKey: testPrivateKeyPem,
+      waffoStoreId: 'STO_current',
+    });
+    fs.writeFileSync(path.join(config.targetDir, '.env.example'), '', 'utf8');
+    fs.writeFileSync(
+      path.join(config.targetDir, '.env'),
+      "WAFFO_STORE_ID='STO_legacy_local'\n",
+      'utf8'
+    );
+    fs.writeFileSync(
+      path.join(config.targetDir, '.env.production'),
+      "WAFFO_STORE_ID='STO_legacy_production'\n",
+      'utf8'
+    );
+
+    ensureEnvFiles(config);
+
+    expect(
+      fs.readFileSync(path.join(config.targetDir, '.env'), 'utf8')
+    ).not.toContain('WAFFO_STORE_ID=');
+    expect(
+      fs.readFileSync(path.join(config.targetDir, '.env.production'), 'utf8')
+    ).not.toContain('WAFFO_STORE_ID=');
   });
 
   it('always enables test webhook verification', () => {

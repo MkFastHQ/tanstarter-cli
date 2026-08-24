@@ -10,11 +10,14 @@ const WAFFO_ENV_KEYS = [
   'WAFFO_DEBUG',
   'WAFFO_MERCHANT_ID',
   'WAFFO_PRIVATE_KEY',
-  'WAFFO_STORE_ID',
   'VITE_WAFFO_PRODUCT_PRO_MONTHLY',
   'VITE_WAFFO_PRODUCT_PRO_YEARLY',
   'VITE_WAFFO_PRODUCT_LIFETIME',
 ] as const;
+
+// Store IDs are CLI provisioning state, not part of the generated app's
+// runtime environment. Remove the value written by CLI versions <= 1.3.4.
+const OBSOLETE_CLI_ENV_KEYS = ['WAFFO_STORE_ID'] as const;
 
 export function ensureEnvFiles(config: RuntimeConfig): void {
   const processEnvValues = getProcessEnvValuesFromExample(config.targetDir);
@@ -40,6 +43,7 @@ export function ensureEnvFiles(config: RuntimeConfig): void {
   for (const envFile of ['.env', '.env.production']) {
     const envPath = path.join(config.targetDir, envFile);
     ensureEnvFile(envPath, config.targetDir);
+    removeEnvKeys(envPath, OBSOLETE_CLI_ENV_KEYS);
     const existing = parseEnvFile(envPath);
     const baseUrl =
       envFile === '.env'
@@ -68,7 +72,6 @@ function waffoEnvValues(config: RuntimeConfig): Record<string, string> {
     WAFFO_DEBUG: 'true',
     WAFFO_MERCHANT_ID: config.waffoMerchantId,
     WAFFO_PRIVATE_KEY: normalizePemForEnv(config.waffoPrivateKey),
-    WAFFO_STORE_ID: config.waffoStoreId,
     VITE_WAFFO_PRODUCT_PRO_MONTHLY: productIds.proMonthly,
     VITE_WAFFO_PRODUCT_PRO_YEARLY: productIds.proYearly,
     VITE_WAFFO_PRODUCT_LIFETIME: productIds.lifetime,
@@ -147,6 +150,23 @@ function updateEnvFile(filePath: string, values: Record<string, string>): void {
       lines.push(`${key}=${formatEnvValue(value)}`);
     }
   }
+
+  fs.writeFileSync(
+    filePath,
+    `${lines.join('\n').replace(/\n+$/, '')}\n`,
+    'utf8'
+  );
+}
+
+function removeEnvKeys(filePath: string, keys: readonly string[]): void {
+  const keysToRemove = new Set(keys);
+  const content = fs.readFileSync(filePath, 'utf8');
+  const lines = content
+    .split(/\r?\n/)
+    .filter((line) => {
+      const match = line.match(/^([A-Z_][A-Z0-9_]*)=/);
+      return !match?.[1] || !keysToRemove.has(match[1]);
+    });
 
   fs.writeFileSync(
     filePath,
