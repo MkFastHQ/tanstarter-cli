@@ -87,6 +87,20 @@ const testPrivateKeyPem = testPrivateKey.export({
   format: 'pem',
 }) as string;
 
+const EXPECTED_LATEST_TEMPLATE_WAFFO_WEBHOOK_EVENTS = [
+  'order.completed',
+  'subscription.activated',
+  'subscription.renewed',
+  'subscription.recovered',
+  'subscription.plan_changed',
+  'subscription.canceling',
+  'subscription.uncanceled',
+  'subscription.canceled',
+  'subscription.past_due',
+  'refund.succeeded',
+  'refund.failed',
+] as const;
+
 function runGit(cwd: string, args: string[]): string {
   return execFileSync('git', args, {
     cwd,
@@ -738,6 +752,12 @@ describe('createConfig with Waffo payment', () => {
 });
 
 describe('Waffo helpers', () => {
+  it('uses the webhook events handled by the latest template', () => {
+    expect(WAFFO_WEBHOOK_EVENTS).toEqual(
+      EXPECTED_LATEST_TEMPLATE_WAFFO_WEBHOOK_EVENTS
+    );
+  });
+
   it('derives a bounded store name and fixed template products', () => {
     expect(waffoStoreNameForProject('a'.repeat(63))).toHaveLength(48);
     expect(WAFFO_TEMPLATE_PRODUCTS).toMatchObject([
@@ -955,7 +975,7 @@ describe('Waffo API resource flow', () => {
       channel: 'http',
       url: 'https://app.example.com/api/webhooks/waffo',
       testMode: true,
-      events: WAFFO_WEBHOOK_EVENTS,
+      events: EXPECTED_LATEST_TEMPLATE_WAFFO_WEBHOOK_EVENTS,
     });
   });
 

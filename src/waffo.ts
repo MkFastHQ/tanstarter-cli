@@ -16,15 +16,16 @@ import type {
 export const WAFFO_WEBHOOK_EVENTS = [
   'order.completed',
   'subscription.activated',
-  'subscription.payment_succeeded',
-  'subscription.updated',
+  'subscription.renewed',
+  'subscription.recovered',
+  'subscription.plan_changed',
   'subscription.canceling',
   'subscription.uncanceled',
   'subscription.canceled',
   'subscription.past_due',
   'refund.succeeded',
   'refund.failed',
-];
+] as const;
 
 const PKCS8_PRIVATE_KEY_HEADER = '-----BEGIN PRIVATE KEY-----';
 const PKCS8_PRIVATE_KEY_FOOTER = '-----END PRIVATE KEY-----';
