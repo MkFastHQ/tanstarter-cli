@@ -1322,10 +1322,14 @@ describe('optional final email forwarding', () => {
     vi.unstubAllGlobals();
   });
 
-  function mockRouting(rules: unknown[] = []) {
+  function mockRouting(
+    rule = { enabled: false, matchers: [{ type: 'all' }], actions: [{ type: 'drop', value: [] as string[] }] },
+    addresses = [{ email: 'you@gmail.com', verified: '2026-01-01T00:00:00Z' as string | null }]
+  ) {
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, result: [{ id: 'zone-id', name: 'example.com' }] })))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, result: rules })));
+      .mockResolvedValueOnce(Response.json({ success: true, result: [{ id: 'zone-id', name: 'example.com' }] }))
+      .mockResolvedValueOnce(Response.json({ success: true, result: rule }))
+      .mockResolvedValueOnce(Response.json({ success: true, result: addresses }));
     vi.stubGlobal('fetch', fetchMock);
     const run = vi.spyOn(commands, 'runInherited').mockImplementation(() => {});
     vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -1333,33 +1337,31 @@ describe('optional final email forwarding', () => {
     return run;
   }
 
-  it('creates support forwarding to the selected mailbox', async () => {
+  it('configures domain catch-all to a verified destination', async () => {
     const run = mockRouting();
     expect(await configureEmailForwarding(createTestConfig({ domain: 'example.com', emailForwardTo: 'you@gmail.com' }))).toBe(true);
-    expect(JSON.parse(run.mock.calls[1]?.[1][run.mock.calls[1][1].indexOf('--matchers') + 1] ?? '')).toEqual([
-      { type: 'literal', field: 'to', value: 'support@example.com' },
-    ]);
-    expect(JSON.parse(run.mock.calls[1]?.[1][run.mock.calls[1][1].indexOf('--actions') + 1] ?? '')).toEqual([
-      { type: 'forward', value: ['you@gmail.com'] },
-    ]);
+    const args = run.mock.calls[1]![1];
+    expect(args.slice(0, 6)).toEqual(['exec', 'cf', 'email-routing', 'rules', 'catch-all', 'update']);
+    expect(JSON.parse(args[args.indexOf('--matchers') + 1]!)).toEqual([{ type: 'all' }]);
+    expect(JSON.parse(args[args.indexOf('--actions') + 1]!)).toEqual([{ type: 'forward', value: ['you@gmail.com'] }]);
     expect(run.mock.calls[0]?.[1]).toEqual(['exec', 'cf', 'email-routing', 'enable', '--zone', 'zone-id', '--name', 'example.com']);
   });
 
-  it('does not duplicate an identical enabled rule on retry', async () => {
-    const run = mockRouting([{ enabled: true, matchers: [{ type: 'literal', field: 'to', value: 'support@example.com' }], actions: [{ type: 'forward', value: ['you@gmail.com'] }] }]);
+  it('reuses an identical enabled catch-all on retry', async () => {
+    const run = mockRouting({ enabled: true, matchers: [{ type: 'all' }], actions: [{ type: 'forward', value: ['you@gmail.com'] }] });
     expect(await configureEmailForwarding(createTestConfig({ domain: 'example.com', emailForwardTo: 'you@gmail.com' }))).toBe(true);
     expect(run).toHaveBeenCalledTimes(1);
   });
 
-  it('returns a retryable failure without throwing when the destination is unverified', async () => {
-    const run = mockRouting();
-    run.mockImplementationOnce(() => {}).mockImplementationOnce(() => { throw new Error('destination not verified'); });
+  it('checks verification before changing DNS', async () => {
+    const run = mockRouting(undefined, [{ email: 'you@gmail.com', verified: null }]);
     expect(await configureEmailForwarding(createTestConfig({ domain: 'example.com', emailForwardTo: 'you@gmail.com' }))).toBe(false);
-    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('destination not verified'));
+    expect(run).not.toHaveBeenCalled();
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('destination is not verified'));
   });
 
-  it('preserves conflicting rules and does not fail initialization', async () => {
-    const run = mockRouting([{ enabled: true, matchers: [{ type: 'literal', field: 'to', value: 'support@example.com' }], actions: [{ type: 'forward', value: ['other@gmail.com'] }] }]);
+  it.each([true, false])('preserves a conflicting catch-all (enabled: %s)', async (enabled) => {
+    const run = mockRouting({ enabled, matchers: [{ type: 'all' }], actions: [{ type: 'forward', value: ['other@gmail.com'] }] });
     expect(await configureEmailForwarding(createTestConfig({ domain: 'example.com', emailForwardTo: 'you@gmail.com' }))).toBe(false);
     expect(run).not.toHaveBeenCalled();
   });
@@ -1370,23 +1372,24 @@ describe('optional final email forwarding', () => {
     expect(run).not.toHaveBeenCalled();
   });
 
-  it('rejects subdomain forwarding before changing DNS', async () => {
+  it('rejects subdomain catch-all before changing the parent zone', async () => {
     const run = mockRouting();
     expect(await configureEmailForwarding(createTestConfig({ domain: 'app.example.com', emailForwardTo: 'you@gmail.com' }))).toBe(false);
     expect(run).not.toHaveBeenCalled();
     expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('zone apex domain'));
   });
 
-  it('checks later rule pages before creating or changing anything', async () => {
+  it('checks later pages of verified addresses', async () => {
     const run = mockRouting();
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockReset()
       .mockResolvedValueOnce(Response.json({ success: true, result: [{ id: 'zone-id', name: 'example.com' }] }))
-      .mockResolvedValueOnce(Response.json({ success: true, result: [{ enabled: true, matchers: [], actions: [] }], result_info: { total_pages: 2 } }))
-      .mockResolvedValueOnce(Response.json({ success: true, result: [{ enabled: false, matchers: [{ type: 'literal', field: 'to', value: 'support@example.com' }], actions: [] }], result_info: { total_pages: 2 } }));
-    expect(await configureEmailForwarding(createTestConfig({ domain: 'example.com', emailForwardTo: 'you@gmail.com' }))).toBe(false);
-    expect(String(fetchMock.mock.calls[2]?.[0])).toContain('page=2');
-    expect(run).not.toHaveBeenCalled();
+      .mockResolvedValueOnce(Response.json({ success: true, result: { enabled: false, matchers: [{ type: 'all' }], actions: [{ type: 'drop' }] } }))
+      .mockResolvedValueOnce(Response.json({ success: true, result: [{ email: 'other@gmail.com', verified: null }], result_info: { total_pages: 2 } }))
+      .mockResolvedValueOnce(Response.json({ success: true, result: [{ email: 'you@gmail.com', verified: '2026-01-01T00:00:00Z' }], result_info: { total_pages: 2 } }));
+    expect(await configureEmailForwarding(createTestConfig({ domain: 'example.com', emailForwardTo: 'you@gmail.com' }))).toBe(true);
+    expect(String(fetchMock.mock.calls[3]?.[0])).toContain('page=2');
+    expect(run).toHaveBeenCalledTimes(2);
   });
 
   it('accepts both forwarding flag forms and rejects malformed addresses', () => {

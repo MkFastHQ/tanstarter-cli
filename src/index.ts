@@ -470,12 +470,12 @@ export async function main(): Promise<void> {
 
   let optionalStepIndex = activeSteps.length + 2;
   if (state.config.emailForwardTo) {
-    const title = 'Configure optional email forwarding';
+    const title = 'Configure optional email catch-all forwarding';
     optionalStepIndex += 1;
-    if (state.completedSteps.includes('configure-email-forwarding')) {
+    if (state.completedSteps.includes('configure-email-catch-all')) {
       printResumedStep(
         title,
-        stepResultDetails('configure-email-forwarding', state.config)
+        stepResultDetails('configure-email-catch-all', state.config)
       );
     } else {
       printStep(optionalStepIndex, totalSteps, title);
@@ -483,11 +483,11 @@ export async function main(): Promise<void> {
         state = markCompleted(
           state.config.targetDir,
           state,
-          'configure-email-forwarding'
+          'configure-email-catch-all'
         );
         printCompletedStep(
           title,
-          stepResultDetails('configure-email-forwarding', state.config)
+          stepResultDetails('configure-email-catch-all', state.config)
         );
       } else {
         printFailedStep(title);

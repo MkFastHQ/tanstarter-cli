@@ -124,8 +124,8 @@ export function stepResultDetails(id: string, config: RuntimeConfig): string[] {
             `Conclusion: ${config.githubDeployment.conclusion || config.githubDeployment.status}`,
           ]
         : [];
-    case 'configure-email-forwarding':
-      return [`support@${config.domain} → ${config.emailForwardTo}`];
+    case 'configure-email-catch-all':
+      return [`*@${config.domain} → ${config.emailForwardTo}`, 'Existing address-specific rules take priority.'];
     default:
       return [];
   }

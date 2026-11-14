@@ -12,7 +12,7 @@ Usage:
 Options:
   --repo <owner/name>     Create or use this GitHub repo
   --domain <domain>       Cloudflare custom domain route
-  --email-forward-to <email>  Forward support@domain (optional; failures do not stop setup)
+  --email-forward-to <email>  Catch-all *@domain to a verified mailbox (zone apex only; optional)
   --email-sending         Onboard --domain and configure application Cloudflare mail (Workers Paid)
   --email-test-to <email> Send one provider test email (requires Email Sending; inbox receipt is manual)
   --payment <none|waffo>  Payment method for the generated project

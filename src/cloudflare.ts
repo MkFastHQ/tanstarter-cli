@@ -89,40 +89,41 @@ export async function configureEmailForwarding(
     const zone = await requireEmailZone(config);
     if (config.domain !== zone.name) {
       throw new Error(
-        'Automatic email forwarding currently requires the zone apex domain; configure subdomain routing manually in Cloudflare.'
+        'Cloudflare catch-all forwarding requires the zone apex domain; subdomains only support individual address rules. No parent-domain routing was changed.'
       );
     }
-    const source = `support@${config.domain}`;
-    const rules = await listCloudflarePages<EmailRoutingRule>(
+    const source = `*@${config.domain}`;
+    const { result: existing } = await cloudflareRequest<EmailRoutingRule>(
       config,
-      `/zones/${zone.id}/email/routing/rules`
+      'GET',
+      `/zones/${zone.id}/email/routing/rules/catch_all`
     );
-    const existing = rules.filter((rule) =>
-      rule.matchers.some(
-        (matcher) =>
-          matcher.type === 'literal' &&
-          matcher.field === 'to' &&
-          matcher.value === source
-      )
-    );
-    if (existing.length) {
-      if (
-        !existing.every(
-          (rule) =>
-            rule.enabled &&
-            rule.actions.length === 1 &&
-            rule.actions[0]?.type === 'forward' &&
-            rule.actions[0]?.value?.length === 1 &&
-            rule.actions[0]?.value?.[0] === config.emailForwardTo
-        )
-      ) {
-        throw new Error(
-          `A different or disabled routing rule already exists for ${source}; review it before retrying.`
-        );
-      }
+    if (!existing || !Array.isArray(existing.actions) ||
+        !Array.isArray(existing.matchers) || typeof existing.enabled !== 'boolean') {
+      throw new Error('Could not inspect the existing catch-all rule.');
     }
-    // Inspect conflicts before changing DNS. The API rejects unverified
-    // destinations without registering addresses or sending verification mail.
+    const sameDestination = existing.actions.length === 1 &&
+      existing.actions[0]?.type === 'forward' &&
+      existing.actions[0]?.value?.length === 1 &&
+      existing.actions[0]?.value?.[0] === config.emailForwardTo &&
+      existing.matchers.length === 1 && existing.matchers[0]?.type === 'all';
+    const inactiveDefault = !existing.enabled &&
+      existing.actions.length === 1 && existing.actions[0]?.type === 'drop';
+    if (!sameDestination && !inactiveDefault) {
+      throw new Error(
+        `A different catch-all rule already exists for ${config.domain}; review it in Cloudflare before retrying.`
+      );
+    }
+    const addresses = await listCloudflarePages<{ email: string; verified: string | null }>(
+      config,
+      `/accounts/${config.cloudflareAccountId}/email/routing/addresses`
+    );
+    if (!addresses.some((address) =>
+      address.email === config.emailForwardTo && Boolean(address.verified)
+    )) {
+      throw new Error('The destination is not verified in this Cloudflare account. Verify it in Cloudflare before retrying.');
+    }
+    // Check catch-all conflicts and account-level verification before changing DNS.
     runInherited(
       'pnpm',
       [
@@ -137,7 +138,7 @@ export async function configureEmailForwarding(
       ],
       config
     );
-    if (!existing.length) {
+    if (!sameDestination || !existing.enabled) {
       runInherited(
         'pnpm',
         [
@@ -145,14 +146,15 @@ export async function configureEmailForwarding(
           'cf',
           'email-routing',
           'rules',
-          'create',
+          'catch-all',
+          'update',
           '--zone',
           zone.id,
           '--name',
-          'Support forwarding',
+          'Catch-all forwarding',
           '--enabled',
           '--matchers',
-          JSON.stringify([{ type: 'literal', field: 'to', value: source }]),
+          JSON.stringify([{ type: 'all' }]),
           '--actions',
           JSON.stringify([{ type: 'forward', value: [config.emailForwardTo] }]),
         ],
@@ -160,7 +162,7 @@ export async function configureEmailForwarding(
       );
     }
     console.log(
-      `Email forwarding configured: ${source} → ${config.emailForwardTo}`
+      `Catch-all forwarding configured: ${source} → ${config.emailForwardTo}. Existing address-specific rules take priority.`
     );
     return true;
   } catch (error) {
@@ -168,7 +170,7 @@ export async function configureEmailForwarding(
       `Optional email forwarding failed: ${error instanceof Error ? error.message : String(error)}`
     );
     console.warn(
-      'Project initialization is complete. Verify the destination email in Cloudflare and check Email Routing Rules Edit, Email Routing Settings Edit, Zone Read, and DNS Edit permissions. Then rerun create <project-name> --resume to retry.'
+      'Project initialization is complete. Verify the destination email in Cloudflare and check Email Routing Rules Edit, Email Routing Settings Edit, Email Routing Addresses Read, Zone Read, and DNS Edit permissions. Then rerun create <project-name> --resume to retry.'
     );
     return false;
   }
@@ -250,21 +252,44 @@ export function applyD1Migrations(config: RuntimeConfig, local: boolean): void {
   );
 }
 
+function runDeletionCommand(args: string[], config: RuntimeConfig): void {
+  const result = runCommandAndEcho('pnpm', args, config);
+  if (/\baborted\b/i.test(`${result.stdout}\n${result.stderr}`)) {
+    throw new Error('Cloudflare CLI aborted deletion; the resource was not confirmed deleted.');
+  }
+}
+
 export function deleteD1(config: RuntimeConfig): void {
   if (!config.d1DatabaseId) {
     console.log('D1 database id is missing; skipping D1 deletion.');
     return;
   }
-  runCommandAndEcho(
-    'pnpm',
+  runDeletionCommand(
     ['exec', 'cf', 'd1', 'delete', config.d1DatabaseId, '--force'],
     config
   );
 }
 
+/** Remove only this Worker's binding, even if a prior Worker deletion left it behind. */
+export async function deleteWorkerCustomDomain(config: RuntimeConfig): Promise<void> {
+  if (!config.domain) return;
+  const existing = await getWorkerCustomDomain(config, config.domain);
+  if (!existing) {
+    console.log(`Custom-domain binding already absent: ${config.domain}`);
+    return;
+  }
+  if (existing.service !== config.projectName) {
+    throw new Error(`Custom domain ${config.domain} now belongs to Worker ${existing.service}; it was not removed.`);
+  }
+  if (!existing.id) {
+    throw new Error(`Custom-domain binding ID is missing for ${config.domain}; cannot confirm deletion.`);
+  }
+  await cloudflareRequest(config, 'DELETE',
+    `/accounts/${encodeURIComponent(config.cloudflareAccountId)}/workers/domains/${encodeURIComponent(existing.id)}`);
+}
+
 export function deleteWorker(config: RuntimeConfig): void {
-  runCommandAndEcho(
-    'pnpm',
+  runDeletionCommand(
     ['exec', 'cf', 'workers', 'delete', config.projectName, '--force'],
     config
   );
@@ -363,8 +388,7 @@ async function findCloudflareZone(
 
 export async function deleteR2(config: RuntimeConfig): Promise<void> {
   await emptyR2Bucket(config);
-  runCommandAndEcho(
-    'pnpm',
+  runDeletionCommand(
     ['exec', 'cf', 'r2', 'buckets', 'delete', config.r2BucketName, '--force'],
     config
   );
@@ -376,8 +400,7 @@ export function deleteKV(config: RuntimeConfig): void {
     return;
   }
 
-  runCommandAndEcho(
-    'pnpm',
+  runDeletionCommand(
     [
       'exec',
       'cf',
@@ -557,6 +580,7 @@ interface CloudflareZone {
 }
 
 interface CloudflareWorkerCustomDomain {
+  id?: string;
   hostname: string;
   service: string;
   enabled: boolean;

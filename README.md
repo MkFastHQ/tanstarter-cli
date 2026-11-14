@@ -85,11 +85,13 @@ If a run fails after the project directory is created, fix the issue and run:
 tanstarter create my-app --resume
 ```
 
-To delete the Cloudflare and GitHub resources created by the CLI, run:
+To delete the resources created by the CLI, run:
 
 ```bash
 tanstarter delete my-app
 ```
+
+Deletion also cleans Waffo resources whose IDs were saved in `.tanstarter/state.json`: it removes the webhook, deactivates the recorded products, then requests store deletion. Products have no public hard-delete API. Export `WAFFO_MERCHANT_ID` and the original Test `WAFFO_PRIVATE_KEY`; signed requests use the environment selected by the API key. A different key can affect a different product environment, so do not use a Production key for test cleanup. Store deletion is a soft delete and is blocked by active products in either environment, subscriptions, unfinished orders, or other dependencies. The CLI does not cancel subscriptions, refund orders, or modify production product status to bypass these checks. Failures are reported; rerun `delete` after resolving them. Already absent resources are tolerated, and unrelated Cloudflare/GitHub cleanup continues if Waffo cleanup fails. The local project directory and domain email configuration remain in place. Worker custom-domain bindings are explicitly detached only if they still belong to this Worker; Worker secrets and repository secrets disappear with their parent resources. R2 objects are emptied before bucket deletion. Missing D1/KV IDs are reported as skipped, not successfully deleted; review Cloudflare for resources created before state was saved. Generic `Not Found` errors are reported as failures because they may indicate missing access. Cloudflare commands that print `Aborted` are also treated as failures.
 
 ## Prerequisites
 
@@ -196,4 +198,4 @@ Only `--email-test-to` requests a send; forwarding alone never sends a test mess
 npx tanstarter-cli@latest create my-app --domain example.com --email-forward-to you@gmail.com
 ```
 
-Forward `support@<domain>` to the specified mailbox. Automatic inbound setup currently requires the zone apex domain (for example, `example.com`); configure subdomain routing manually. Verify the destination in Cloudflare first. The token needs Email Routing Rules Edit, Email Routing Settings Edit, Zone Read, and DNS Edit permissions covering the domain. This runs last, after creation, deployment, and GitHub initialization. Failure only warns and does not fail initialization; retry unfinished forwarding with `create my-app --resume`. Identical rules are reused; conflicting or disabled rules are not overwritten. The CLI does not register unverified addresses or send verification emails. Combine with `--email-sending` if desired; deleting the project preserves email configuration.
+Forward unmatched mail for `*@<domain>` to the specified mailbox using catch-all. Interactive setup asks for an already verified destination after choosing a custom domain; Enter skips forwarding. Cloudflare supports catch-all only on the zone apex (for example, `example.com`), not a subdomain within that zone. The CLI never changes the parent domain's catch-all for a subdomain project. Existing address-specific rules take priority and are preserved. The token needs Email Routing Rules Edit, Email Routing Settings Edit, account-level Email Routing Addresses Read, Zone Read, and DNS Edit permissions. The CLI checks destination verification and catch-all conflicts before changing DNS; it reuses matching rules and preserves conflicting ones. This runs after deployment and GitHub initialization; failures warn and can be retried with `create my-app --resume`. Older support-address forwarding is preserved when adding catch-all on resume. The CLI never registers destinations or sends verification mail. Combine with `--email-sending` if desired; deletion preserves email configuration.

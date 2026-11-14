@@ -365,6 +365,52 @@ async function waitBeforeRetry(path: string, attempt: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, delay));
 }
 
+/** Clean only resources recorded by this initialization; keys select the API environment. */
+export async function cleanupWaffoResources(config: RuntimeConfig): Promise<void> {
+  requireWaffoCredentials(config);
+  const failures: string[] = [];
+  async function cleanup(label: string, endpoint: string, body: unknown): Promise<void> {
+    try {
+      await waffoRequest(config, 'POST', endpoint, body);
+      console.log(`✅ ${label} completed`);
+    } catch (error) {
+      if (error instanceof WaffoApiError && error.status === 404) {
+        console.log(`✅ ${label}: already absent`);
+        return;
+      }
+      console.error(`❌ ${label} failed: ${error instanceof Error ? error.message : String(error)}`);
+      failures.push(label);
+    }
+  }
+
+  if (config.waffoWebhookId) {
+    await cleanup(`Remove Waffo webhook ${config.waffoWebhookId}`,
+      '/v1/actions/store/remove-webhook', { id: config.waffoWebhookId });
+  }
+  for (const product of WAFFO_TEMPLATE_PRODUCTS) {
+    const id = config.waffoProductIds[product.slot];
+    if (!id) continue;
+    await cleanup(`Deactivate Waffo product ${product.name} (${id})`,
+      `/v1/actions/${product.type === 'onetime' ? 'onetime' : 'subscription'}-product/update-status`,
+      { id, status: 'inactive' });
+  }
+  if (failures.length) {
+    throw new Error(`Waffo cleanup failed: ${failures.join(', ')}. Store deletion was skipped; fix the issue and rerun delete.`);
+  }
+  if (config.waffoStoreId) {
+    await cleanup(`Delete Waffo store ${config.waffoStoreId}`,
+      '/v1/actions/store/delete-store', { id: config.waffoStoreId });
+  }
+  if (failures.length) {
+    throw new Error('Waffo store deletion failed. Resolve the reported dependencies in Waffo, then rerun delete.');
+  }
+}
+
+export function hasWaffoResources(config: RuntimeConfig): boolean {
+  return Boolean(config.waffoStoreId || config.waffoWebhookId ||
+    Object.values(config.waffoProductIds).some(Boolean));
+}
+
 export async function createWaffoStore(
   config: RuntimeConfig,
   name: string

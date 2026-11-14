@@ -12,6 +12,7 @@ import {
   readExistingState,
   writeState,
 } from '../src/state.js';
+import * as cloudflare from '../src/cloudflare.js';
 import * as commands from '../src/commands.js';
 import * as github from '../src/github-deployment.js';
 import * as preflight from '../src/preflight.js';
@@ -526,6 +527,20 @@ describe('resumed initialization integration', () => {
     vi.spyOn(console, 'log').mockImplementation(() => {});
     return current;
   }
+  it('adds catch-all on resume when legacy support forwarding was already completed', async () => {
+    const current = resumed();
+    current.config.emailForwardTo = 'you@example.net';
+    current.completedSteps.push('configure-email-forwarding',
+      'verify-github-deployment', 'verify-final-deployment', 'test-email');
+    writeState(current.config.targetDir, current);
+    const forwarding = vi.spyOn(cloudflare, 'configureEmailForwarding').mockResolvedValue(true);
+    await main();
+    expect(forwarding).toHaveBeenCalledOnce();
+    expect(readExistingState(current.config.targetDir).completedSteps).toContain('configure-email-catch-all');
+    await main();
+    expect(forwarding).toHaveBeenCalledOnce();
+  });
+
   it('confirms Actions, checks the resulting public site, then sends once; resume does not resend', async () => {
     const current = resumed();
     const events: string[] = [];

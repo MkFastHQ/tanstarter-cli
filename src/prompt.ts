@@ -99,6 +99,24 @@ async function promptForMissingOptions(
     };
   }
 
+  if (domain && !options.emailForwardTo && !nextConfig.emailForwardTo) {
+    console.log(
+      'Optional catch-all forwarding requires a Cloudflare zone apex domain and an already verified destination. Existing address rules take priority; subdomains do not support catch-all.'
+    );
+    while (true) {
+      const destination = (await rl.question(
+        `Forward *@${domain} to which verified email address? (Enter to skip): `
+      )).trim();
+      if (!destination) break;
+      if (!/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(destination)) {
+        console.log('Enter a valid destination email address, or press Enter to skip.');
+        continue;
+      }
+      nextConfig = { ...nextConfig, emailForwardTo: destination };
+      break;
+    }
+  }
+
   const d1DatabaseName = await askResourceName(
     rl,
     'D1 database',
@@ -237,7 +255,9 @@ async function confirmSetup(
   console.log(
     `  Email Sending: ${config.emailSending ? config.domain : '(skip)'}`
   );
-  console.log(`  Email forwarding: ${config.emailForwardTo || '(skip)'}`);
+  console.log(
+    `  Email catch-all: ${config.emailForwardTo ? `*@${config.domain} → ${config.emailForwardTo}` : '(skip)'}`
+  );
   console.log(
     `  Provider test email: ${config.emailTestTo || '(skip; no message sent)'}`
   );

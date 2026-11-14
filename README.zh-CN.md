@@ -85,11 +85,13 @@ tanstarter create --domain app.example.com --repo mkfasthq/my-app
 tanstarter create my-app --resume
 ```
 
-如需删除 CLI 创建的 Cloudflare 和 GitHub 资源，运行：
+如需清理 CLI 创建的资源，运行：
 
 ```bash
 tanstarter delete my-app
 ```
+
+删除也会清理 `.tanstarter/state.json` 中记录的 Waffo 资源：先移除 Webhook、停用已记录的产品，再请求删除门店。产品没有公开的硬删除 API。请导出 `WAFFO_MERCHANT_ID` 和原来的 Test `WAFFO_PRIVATE_KEY`；签名请求的环境由 API Key 决定，勿用 Production Key 清理测试产品。门店为软删除，任一环境的活跃产品、订阅、未完成订单等依赖都会阻止删除；CLI 不会取消订阅、退款或修改正式环境产品状态来绕过检查。失败会报告，处理后重跑 `delete`；已不存在的资源可跳过，Waffo 清理失败时仍继续其他 Cloudflare/GitHub 资源的清理。本地项目目录及域名邮件配置会保留。自定义域名绑定仅在仍属于该 Worker 时显式移除；Worker secrets 和仓库 secrets 随对应资源删除。R2 会先清空对象再删除桶。D1/KV 缺少 ID 时明确提示跳过，不算删除成功；如果资源在状态保存前已创建，需到 Cloudflare 核对。通用 `Not Found` 可能代表没有访问权限，会作为失败报告；Cloudflare 命令输出 `Aborted` 也视为失败。
 
 ## 前置要求
 
@@ -195,4 +197,4 @@ tanstarter create my-app --resume --email-test-to you@example.net
 npx tanstarter-cli@latest create my-app --domain example.com --email-forward-to you@gmail.com
 ```
 
-将 `support@<domain>` 转发到指定邮箱。自动配置目前仅支持 zone 主域名（如 `example.com`），子域名收件路由须手动配置。目标须先在 Cloudflare 验证，Token 需包含 Email Routing Rules Edit、Email Routing Settings Edit、Zone Read、DNS Edit，范围包含该域名。此步骤在创建、部署和 GitHub 初始化后最后执行；失败只提示，不影响整个初始化的成功结果，未完成的转发可用 `create my-app --resume` 重试。相同规则会复用，有冲突或禁用规则时不覆盖。不自动注册未验证邮箱或发送验证邮件。可与 `--email-sending` 一起使用；删除项目时保留邮件配置。
+通过 catch-all 将 `*@<domain>` 中未命中具体地址规则的邮件转发到指定邮箱。交互初始化在选择域名后询问已验证的目标邮箱，回车跳过。Cloudflare 仅支持 Zone 根域名（如 `example.com`）的 catch-all，不支持该 Zone 下子域名的独立 catch-all；CLI 不会替子域名项目修改父域名规则。已有具体地址规则优先且会保留。Token 需包含 Email Routing Rules Edit、Email Routing Settings Edit、账户级 Email Routing Addresses Read、Zone Read 和 DNS Edit。修改 DNS 前检查目标验证状态及 catch-all 冲突；复用相同规则，保留冲突规则。此步骤在部署和 GitHub 初始化后执行，失败只提示，可用 `create my-app --resume` 重试；旧版 support 地址转发会保留，续跑时补配置 catch-all。不自动注册目标邮箱或发送验证邮件。可与 `--email-sending` 一起使用；删除项目时保留邮件配置。

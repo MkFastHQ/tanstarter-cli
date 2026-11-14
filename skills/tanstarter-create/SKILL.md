@@ -81,7 +81,7 @@ If initialization fails after the project directory exists, fix the reported pre
 tanstarter create my-app --resume
 ```
 
-Use deletion only when the user explicitly asks to remove the generated Cloudflare and GitHub resources:
+Use deletion only when the user explicitly asks to remove generated resources. It also removes recorded Waffo webhooks, deactivates products, and requests store deletion. Waffo signed requests use the API key environment: use the original Test key for test cleanup. Do not bypass store dependency errors by changing production status, canceling subscriptions, or refunding orders.
 
 ```bash
 tanstarter delete my-app

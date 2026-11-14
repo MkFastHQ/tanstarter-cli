@@ -26,7 +26,8 @@ export function applyEmailOptions(
     },
     completedSteps: state.completedSteps.filter(
       (step) =>
-        !(options.emailForwardTo && step === 'configure-email-forwarding') &&
+        !(options.emailForwardTo &&
+          (step === 'configure-email-forwarding' || step === 'configure-email-catch-all')) &&
         !(options.emailTestTo && step === 'test-email')
     ),
   };
