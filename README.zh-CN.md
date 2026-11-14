@@ -91,12 +91,14 @@ tanstarter delete my-app
 
 ## 前置要求
 
-- Node.js 20 或更高版本。
+- Node.js 版本须与当前模板一致：`^22.23.0 || ^24.22.0 || >=26.12.0`。
 - 一个 Cloudflare 账号，并在当前 shell 环境中设置 `CLOUDFLARE_ACCOUNT_ID` 和 `CLOUDFLARE_API_TOKEN`。
 - 一个已经通过 GitHub CLI 登录的 GitHub 账号。
 - （仅 Waffo）在 Waffo 控制台（API & Development → API Keys）创建 Test API Key。将 `MER_...` 商户 ID 设置为 `WAFFO_MERCHANT_ID`，将 Waffo 提供的 private key 字符串设置为 `WAFFO_PRIVATE_KEY`，CLI 会原样传递该值。CLI 始终使用 Waffo 测试模式；没有自定义域名时会使用部署后的 `workers.dev` 地址注册 Webhook。
 
 CLI 会检查 `node`、`pnpm`、`git`、`gh`、GitHub CLI 登录状态和 Cloudflare 凭证。如果缺少 `pnpm`、`git` 或 `gh`，CLI 会尝试通过系统可用的包管理器自动安装。
+
+CLI 通过 `pnpm exec cf` 使用模板自带的 Cloudflare CLI，无需全局安装。修改配置时会保留模板的导入、导出的环境变量列表、secret 声明及其他 Worker 设置。旧版生成的项目需要先通过 `cf migrate` 迁移配置，并更新模板脚本和依赖，再使用此版本续跑或删除资源。
 
 ### 非交互式 Waffo 配置
 
@@ -121,7 +123,7 @@ Waffo 仍可能要求在控制台完成商户验证、企业资料和收款账�
 3. 验证 Cloudflare 认证。
 4. （仅 Waffo）创建 Waffo 门店和模板内置的三个产品。
 5. 创建 Cloudflare D1、R2 和 KV 资源。
-6. 更新 `wrangler.jsonc` 并写入 `.env`/`.env.production`。
+6. 更新 `cloudflare.config.ts` 中的 Worker 名称、域名及 DB/BUCKET/CACHE 绑定，并写入 `.env`/`.env.production`。
 7. 执行数据库迁移。
 8. 本地构建并部署。
 9. 同步 Worker secrets。

@@ -1,6 +1,11 @@
 import process from 'node:process';
 
-import { commandExists, execVersion, runInheritedRaw, runQuiet } from './commands.js';
+import {
+  commandExists,
+  execVersion,
+  runInheritedRaw,
+  runQuiet,
+} from './commands.js';
 import { checkGitIdentity } from './git.js';
 import type { RuntimeConfig } from './types.js';
 import { maskSecret } from './utils.js';
@@ -17,6 +22,20 @@ type RequiredCommand = (typeof REQUIRED_COMMANDS)[number];
 interface InstallStep {
   command: string;
   args: string[];
+}
+
+export function assertNodeVersion(version = process.versions.node): void {
+  const [major = 0, minor = 0] = version.split('.').map(Number);
+  if (
+    (major === 22 && minor >= 23) ||
+    (major === 24 && minor >= 22) ||
+    (major === 26 && minor >= 12) ||
+    major > 26
+  )
+    return;
+  throw new Error(
+    `Node.js ${version} is unsupported. Use Node.js 22.23+, 24.22+, or 26.12+ (matching the current template).`
+  );
 }
 
 export function preflight(config: RuntimeConfig): void {
@@ -40,9 +59,7 @@ export function preflight(config: RuntimeConfig): void {
   if (config.paymentProvider === 'waffo') {
     if (config.waffoMerchantId && config.waffoPrivateKey) {
       console.log(`✓ WAFFO_MERCHANT_ID=${config.waffoMerchantId}`);
-      console.log(
-        `✓ WAFFO_PRIVATE_KEY=${maskSecret(config.waffoPrivateKey)}`
-      );
+      console.log(`✓ WAFFO_PRIVATE_KEY=${maskSecret(config.waffoPrivateKey)}`);
     } else {
       console.log(
         '⚠ WAFFO_MERCHANT_ID and WAFFO_PRIVATE_KEY are not set; Waffo store setup will require them.'
@@ -148,7 +165,11 @@ export function getInstallPlan(
       return systemInstallSteps('yum', ['install', '-y', command], isRoot);
     }
     if (hasCommand('pacman')) {
-      return systemInstallSteps('pacman', ['-Sy', '--noconfirm', command], isRoot);
+      return systemInstallSteps(
+        'pacman',
+        ['-Sy', '--noconfirm', command],
+        isRoot
+      );
     }
     if (hasCommand('apk')) {
       return systemInstallSteps('apk', ['add', command], isRoot);

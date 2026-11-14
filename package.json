@@ -17,7 +17,6 @@
     "tanstarter",
     "tanstack",
     "cloudflare",
-    "wrangler",
     "d1",
     "r2",
     "kv",
@@ -33,10 +32,10 @@
     "README.zh-CN.md"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc",
     "check": "tsc --noEmit",
     "dev": "tsx src/index.ts",
-    "test": "vitest run test/index.test.ts",
+    "test": "vitest run",
     "prepublishOnly": "pnpm run build",
     "release:dry": "npm publish --dry-run",
     "release": "npm publish"
@@ -46,12 +45,16 @@
     "access": "public"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": "^22.23.0 || ^24.22.0 || >=26.12.0"
   },
   "devDependencies": {
+    "@types/cross-spawn": "^6.0.6",
     "@types/node": "^22.10.2",
     "tsx": "^4.21.0",
-    "typescript": "^5.7.2",
     "vitest": "^4.1.9"
+  },
+  "dependencies": {
+    "cross-spawn": "^7.0.6",
+    "typescript": "^5.7.2"
   }
 }

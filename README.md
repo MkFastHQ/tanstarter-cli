@@ -91,12 +91,14 @@ tanstarter delete my-app
 
 ## Prerequisites
 
-- Node.js 20 or later.
+- Node.js matching the current template: `^22.23.0 || ^24.22.0 || >=26.12.0`.
 - A Cloudflare account with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` available in your shell environment.
 - A GitHub account authenticated with GitHub CLI.
 - (Waffo only) Create a Test API Key in the Waffo dashboard (API & Development → API Keys). Use the `MER_...` merchant ID as `WAFFO_MERCHANT_ID` and the private key value provided by Waffo as `WAFFO_PRIVATE_KEY`; the CLI passes that value through unchanged. The CLI always uses Waffo test mode and falls back to the deployed `workers.dev` URL when no custom domain is supplied.
 
 The CLI checks for `node`, `pnpm`, `git`, `gh`, GitHub CLI auth, and Cloudflare credentials. If `pnpm`, `git`, or `gh` is missing, the CLI attempts to install it with the available system package manager before continuing.
+
+The CLI uses the template's local Cloudflare CLI dependency through `pnpm exec cf`; no global installation is required. Configuration edits preserve the template's imports, exported environment-key lists, secret declarations, and unrelated Worker settings. Older generated projects must migrate their configuration with `cf migrate` and update their template scripts/dependencies before using this CLI to resume or delete resources.
 
 ### Non-interactive Waffo setup
 
@@ -121,7 +123,7 @@ The setup flow:
 3. Verifies Cloudflare authentication.
 4. (Waffo only) Creates the Waffo store and three template products.
 5. Creates Cloudflare D1, R2, and KV resources.
-6. Updates `wrangler.jsonc` and writes `.env`/`.env.production`.
+6. Updates `cloudflare.config.ts` (Worker name, domains, and DB/BUCKET/CACHE bindings) and writes `.env`/`.env.production`.
 7. Runs database migrations.
 8. Builds and deploys locally.
 9. Syncs Worker secrets.

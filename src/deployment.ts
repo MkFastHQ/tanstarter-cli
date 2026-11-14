@@ -2,21 +2,20 @@ import type { RuntimeConfig } from './types.js';
 
 const DEPLOYMENT_REQUEST_TIMEOUT_MS = 15_000;
 const DEPLOYMENT_RETRY_DELAYS_MS = [
-  2_000,
-  5_000,
-  10_000,
-  15_000,
-  30_000,
-  60_000,
-  60_000,
-  60_000,
-  60_000,
+  2_000, 5_000, 10_000, 15_000, 30_000, 60_000, 60_000, 60_000, 60_000,
 ] as const;
 
 export interface DeploymentVerificationOptions {
   requestTimeoutMs?: number;
   retryDelaysMs?: readonly number[];
   sleep?: (milliseconds: number) => Promise<void>;
+}
+
+export function parseDeploymentUrl(output: string): string | undefined {
+  // Accept both terminal output and JSON without including JSON punctuation.
+  return output.match(
+    /https:\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)*\.workers\.dev\b/i
+  )?.[0];
 }
 
 export function getPublicBaseUrl(config: RuntimeConfig): string | undefined {
@@ -48,10 +47,7 @@ export async function verifyPublicDeployment(
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const controller = new AbortController();
-    const timeout = setTimeout(
-      () => controller.abort(),
-      requestTimeoutMs
-    );
+    const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
     try {
       const response = await fetch(url, {
         method: 'GET',
@@ -80,9 +76,7 @@ export async function verifyPublicDeployment(
         `Cloudflare custom domains provision DNS, certificates, and routing asynchronously for ${config.domain}.`,
         'If the hostname is still unresolved, check Workers & Pages → your Worker → Settings → Domains & Routes and the zone DNS records, then rerun with --resume.',
       ]
-    : [
-        'Check the workers.dev deployment status, then rerun with --resume.',
-      ];
+    : ['Check the workers.dev deployment status, then rerun with --resume.'];
 
   throw new Error(
     [

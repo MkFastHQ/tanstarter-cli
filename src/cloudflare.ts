@@ -1,8 +1,13 @@
-import { runCommand, runCommandAndEcho, runInherited } from './commands.js';
+import {
+  runCommand,
+  runCommandAndEcho,
+  runInherited,
+  runInheritedNonInteractive,
+} from './commands.js';
 import type { RuntimeConfig } from './types.js';
 
 export function cloudflareAuth(config: RuntimeConfig): void {
-  runInherited('pnpm', ['exec', 'wrangler', 'whoami'], config);
+  runInherited('pnpm', ['exec', 'cf', 'auth', 'whoami'], config);
 }
 
 export function createD1(config: RuntimeConfig): RuntimeConfig {
@@ -10,22 +15,15 @@ export function createD1(config: RuntimeConfig): RuntimeConfig {
 
   const result = runCommand(
     'pnpm',
-    [
-      'exec',
-      'wrangler',
-      'd1',
-      'create',
-      config.d1DatabaseName,
-      '--update-config=false',
-    ],
+    ['exec', 'cf', 'd1', 'create', '--name', config.d1DatabaseName],
     config
   );
   const outputText = `${result.stdout}\n${result.stderr}`;
-  const databaseId = parseD1DatabaseId(outputText);
+  const databaseId = parseD1DatabaseId(result.stdout);
 
   if (!databaseId) {
     throw new Error(
-      `Could not parse D1 database_id from Wrangler output:\n${outputText}`
+      `Could not parse D1 database_id from Cloudflare CLI output:\n${outputText}`
     );
   }
 
@@ -35,15 +33,7 @@ export function createD1(config: RuntimeConfig): RuntimeConfig {
 export function createR2(config: RuntimeConfig): void {
   runInherited(
     'pnpm',
-    [
-      'exec',
-      'wrangler',
-      'r2',
-      'bucket',
-      'create',
-      config.r2BucketName,
-      '--update-config=false',
-    ],
+    ['exec', 'cf', 'r2', 'buckets', 'create', '--name', config.r2BucketName],
     config
   );
 }
@@ -55,38 +45,55 @@ export function createKV(config: RuntimeConfig): RuntimeConfig {
     'pnpm',
     [
       'exec',
-      'wrangler',
+      'cf',
       'kv',
-      'namespace',
+      'namespaces',
       'create',
+      '--title',
       config.kvNamespaceName,
-      '--update-config=false',
     ],
     config
   );
   const outputText = `${result.stdout}\n${result.stderr}`;
-  const namespaceId = parseKVNamespaceId(outputText);
+  const namespaceId = parseKVNamespaceId(result.stdout);
 
   if (!namespaceId) {
     throw new Error(
-      `Could not parse KV namespace id from Wrangler output:\n${outputText}`
+      `Could not parse KV namespace id from Cloudflare CLI output:\n${outputText}`
     );
   }
 
   return { ...config, kvNamespaceId: namespaceId };
 }
 
-export function deleteD1(config: RuntimeConfig): void {
-  runCommandAndEcho(
+export function applyD1Migrations(config: RuntimeConfig, local: boolean): void {
+  if (!config.d1DatabaseId)
+    throw new Error('D1 migrations require a database ID.');
+  runInheritedNonInteractive(
     'pnpm',
     [
       'exec',
-      'wrangler',
+      'cf',
       'd1',
-      'delete',
-      config.d1DatabaseName,
-      '--skip-confirmation',
+      'migrations',
+      'apply',
+      config.d1DatabaseId,
+      '--dir',
+      'src/db/migrations',
+      ...(local ? ['--local', '--persist-to', '.cloudflare/state'] : []),
     ],
+    config
+  );
+}
+
+export function deleteD1(config: RuntimeConfig): void {
+  if (!config.d1DatabaseId) {
+    console.log('D1 database id is missing; skipping D1 deletion.');
+    return;
+  }
+  runCommandAndEcho(
+    'pnpm',
+    ['exec', 'cf', 'd1', 'delete', config.d1DatabaseId, '--force'],
     config
   );
 }
@@ -94,7 +101,7 @@ export function deleteD1(config: RuntimeConfig): void {
 export function deleteWorker(config: RuntimeConfig): void {
   runCommandAndEcho(
     'pnpm',
-    ['exec', 'wrangler', 'delete', config.projectName, '--force'],
+    ['exec', 'cf', 'workers', 'delete', config.projectName, '--force'],
     config
   );
 }
@@ -102,7 +109,7 @@ export function deleteWorker(config: RuntimeConfig): void {
 /**
  * Confirm that a custom hostname belongs to this Worker.
  *
- * Wrangler normally provisions the binding from `routes[].custom_domain`.
+ * Cloudflare CLI normally provisions the binding from `worker.domains`.
  * Keeping this API call in the resumable workflow makes the desired binding
  * explicit and lets a resume repair a binding that was not created during an
  * earlier deploy.
@@ -177,15 +184,13 @@ async function findCloudflareZone(
 ): Promise<CloudflareZone | undefined> {
   const params = new URLSearchParams({
     'account.id': config.cloudflareAccountId,
-    per_page: '1000',
   });
-  const response = await cloudflareRequest<CloudflareZone[]>(
+  const zones = await listCloudflarePages<CloudflareZone>(
     config,
-    'GET',
-    `/zones?${params.toString()}`
+    `/zones?${params}`
   );
 
-  return response.result
+  return zones
     .filter(
       (zone) => hostname === zone.name || hostname.endsWith(`.${zone.name}`)
     )
@@ -196,7 +201,7 @@ export async function deleteR2(config: RuntimeConfig): Promise<void> {
   await emptyR2Bucket(config);
   runCommandAndEcho(
     'pnpm',
-    ['exec', 'wrangler', 'r2', 'bucket', 'delete', config.r2BucketName],
+    ['exec', 'cf', 'r2', 'buckets', 'delete', config.r2BucketName, '--force'],
     config
   );
 }
@@ -211,32 +216,36 @@ export function deleteKV(config: RuntimeConfig): void {
     'pnpm',
     [
       'exec',
-      'wrangler',
+      'cf',
       'kv',
-      'namespace',
+      'namespaces',
       'delete',
-      '--namespace-id',
       config.kvNamespaceId,
-      '--skip-confirmation',
+      '--force',
     ],
     config
   );
 }
 
 export function parseD1DatabaseId(output: string): string | undefined {
-  const databaseIdMatch = output.match(
-    /database_id["'\s:=]+([0-9a-f]{8}-[0-9a-f-]{27})/i
-  );
-  if (databaseIdMatch) return databaseIdMatch[1];
-
-  return output.match(/[0-9a-f]{8}-[0-9a-f-]{27}/i)?.[0];
+  const uuid = parseResourceId(output, 'uuid');
+  return uuid && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(uuid)
+    ? uuid
+    : undefined;
 }
 
 export function parseKVNamespaceId(output: string): string | undefined {
-  const idMatch = output.match(/\bid["'\s:=]+([0-9a-f]{32})\b/i);
-  if (idMatch) return idMatch[1];
+  const id = parseResourceId(output, 'id');
+  return id && /^[0-9a-f]{32}$/i.test(id) ? id : undefined;
+}
 
-  return output.match(/\b[0-9a-f]{32}\b/i)?.[0];
+function parseResourceId(output: string, key: string): string | undefined {
+  try {
+    const result = JSON.parse(output) as Record<string, unknown>;
+    return typeof result[key] === 'string' ? result[key] : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 async function emptyR2Bucket(config: RuntimeConfig): Promise<void> {
@@ -262,7 +271,9 @@ async function emptyR2Bucket(config: RuntimeConfig): Promise<void> {
   }
 }
 
-async function listR2Objects(config: RuntimeConfig): Promise<R2ObjectListResponse> {
+async function listR2Objects(
+  config: RuntimeConfig
+): Promise<R2ObjectListResponse> {
   const params = new URLSearchParams({ per_page: '1000' });
 
   const body = await cloudflareRequest<Array<{ key: string }>>(
@@ -281,11 +292,7 @@ async function deleteR2Object(
   config: RuntimeConfig,
   key: string
 ): Promise<void> {
-  await cloudflareRequest(
-    config,
-    'DELETE',
-    buildR2ObjectPath(config, key)
-  );
+  await cloudflareRequest(config, 'DELETE', buildR2ObjectPath(config, key));
 }
 
 export function buildR2ObjectsPath(config: RuntimeConfig): string {
@@ -339,9 +346,38 @@ interface R2ObjectListResponse {
   result: Array<{ key: string }>;
 }
 
+async function listCloudflarePages<T>(
+  config: RuntimeConfig,
+  resourcePath: string
+): Promise<T[]> {
+  const results: T[] = [];
+  const perPage = 50;
+  for (let page = 1; ; page++) {
+    const url = new URL(resourcePath, 'https://api.cloudflare.com');
+    url.searchParams.set('page', String(page));
+    url.searchParams.set('per_page', String(perPage));
+    const response = await cloudflareRequest<T[]>(
+      config,
+      'GET',
+      `${url.pathname}${url.search}`
+    );
+    results.push(...response.result);
+    const totalPages = response.result_info?.total_pages;
+    if (
+      response.result.length === 0 ||
+      (totalPages !== undefined
+        ? page >= totalPages
+        : response.result.length < perPage)
+    ) {
+      return results;
+    }
+  }
+}
+
 interface CloudflareApiResponse<T> {
   success: boolean;
   result: T;
+  result_info?: { total_pages?: number };
   errors?: Array<{ message: string }>;
 }
 

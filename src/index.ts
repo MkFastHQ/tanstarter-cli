@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from './args.js';
 import {
   cloudflareAuth,
+  applyD1Migrations,
   createD1,
   createKV,
   createR2,
@@ -19,7 +20,11 @@ import {
   runInheritedNonInteractive,
 } from './commands.js';
 import { createConfig } from './config.js';
-import { getPublicBaseUrl, verifyPublicDeployment } from './deployment.js';
+import {
+  getPublicBaseUrl,
+  parseDeploymentUrl,
+  verifyPublicDeployment,
+} from './deployment.js';
 import { deleteProject } from './delete.js';
 import { ensureEnvFiles } from './env.js';
 import {
@@ -28,7 +33,7 @@ import {
   cloneTemplate,
   initializeGit,
 } from './git.js';
-import { preflight } from './preflight.js';
+import { assertNodeVersion, preflight } from './preflight.js';
 import { configureSetup } from './prompt.js';
 import {
   markCompleted,
@@ -44,7 +49,10 @@ import {
 } from './output.js';
 import { updatePackageName } from './template.js';
 import type { SetupState } from './types.js';
-import { writeWranglerConfig } from './wrangler-config.js';
+import {
+  assertCloudflareProject,
+  writeCloudflareConfig,
+} from './cloudflare-config.js';
 import {
   addWaffoWebhook,
   createWaffoStore,
@@ -55,9 +63,11 @@ import {
 
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
+  assertNodeVersion();
 
   if (options.command === 'delete') {
     const state = readExistingState(options.targetDir);
+    assertCloudflareProject(options.targetDir);
     await deleteProject(options, state.config);
     return;
   }
@@ -74,6 +84,10 @@ async function main(): Promise<void> {
         updatedAt: new Date().toISOString(),
       };
 
+  if (options.resume && state.completedSteps.includes('clone-template')) {
+    assertCloudflareProject(state.config.targetDir);
+  }
+
   const steps: Array<{
     id: string;
     title: string;
@@ -84,6 +98,7 @@ async function main(): Promise<void> {
       title: 'Clone TanStarter template',
       run: () => {
         cloneTemplate(state.config.targetDir, options.resume);
+        assertCloudflareProject(state.config.targetDir);
         // Persist the user's choices as soon as the project directory exists,
         // so a later failure can always be resumed without re-prompting.
         state = writeState(state.config.targetDir, state);
@@ -127,10 +142,7 @@ async function main(): Promise<void> {
         if (state.config.paymentProvider !== 'waffo') return;
         for (const product of WAFFO_TEMPLATE_PRODUCTS) {
           if (state.config.waffoProductIds[product.slot]) continue;
-          const productId = await createWaffoProduct(
-            state.config,
-            product
-          );
+          const productId = await createWaffoProduct(state.config, product);
           state = writeState(state.config.targetDir, {
             ...state,
             config: {
@@ -173,9 +185,9 @@ async function main(): Promise<void> {
     },
     {
       id: 'write-config',
-      title: 'Write Wrangler and environment files',
+      title: 'Write Cloudflare and environment files',
       run: () => {
-        writeWranglerConfig(state.config);
+        writeCloudflareConfig(state.config);
         ensureEnvFiles(state.config);
         updatePackageName(state.config);
       },
@@ -188,22 +200,12 @@ async function main(): Promise<void> {
     {
       id: 'db-migrate-local',
       title: 'Apply local database migrations',
-      run: () =>
-        runInheritedNonInteractive(
-          'pnpm',
-          ['run', 'db:migrate:local'],
-          state.config
-        ),
+      run: () => applyD1Migrations(state.config, true),
     },
     {
       id: 'db-migrate-remote',
       title: 'Apply remote database migrations',
-      run: () =>
-        runInheritedNonInteractive(
-          'pnpm',
-          ['run', 'db:migrate:remote'],
-          state.config
-        ),
+      run: () => applyD1Migrations(state.config, false),
     },
     {
       id: 'deploy',
@@ -215,7 +217,7 @@ async function main(): Promise<void> {
         ensureEnvFiles(state.config);
         const result = runCommandAndEcho(
           'pnpm',
-          ['run', 'deploy', '--', '--keep-vars'],
+          ['run', 'deploy'],
           state.config
         );
         const deploymentUrl = parseDeploymentUrl(
@@ -229,17 +231,13 @@ async function main(): Promise<void> {
           ensureEnvFiles(state.config);
 
           // Without a custom domain, Vite cannot know the workers.dev URL
-          // until Wrangler has deployed once. Rebuild after writing the
+          // until Cloudflare CLI has deployed once. Rebuild after writing the
           // discovered public URL so auth/callback/payment URLs are correct.
           if (!state.config.domain && !hadDeploymentUrl) {
             console.log(
               '\nworkers.dev URL discovered; rebuilding with the public production base URL.'
             );
-            runCommandAndEcho(
-              'pnpm',
-              ['run', 'deploy', '--', '--keep-vars'],
-              state.config
-            );
+            runCommandAndEcho('pnpm', ['run', 'deploy'], state.config);
           }
         }
       },
@@ -373,11 +371,7 @@ if (isCliEntrypoint(process.argv[1], import.meta.url)) {
   main().catch((error) => {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`\nTanStarter CLI failed:\n${message}`);
-    if (
-      process.argv
-        .slice(2)
-        .some((arg) => arg === 'delete')
-    ) {
+    if (process.argv.slice(2).some((arg) => arg === 'delete')) {
       console.error(
         '\nCheck the project name and local state file, then rerun delete.'
       );
@@ -400,12 +394,6 @@ export function isCliEntrypoint(
   } catch {
     return path.resolve(argvPath) === path.resolve(modulePath);
   }
-}
-
-function parseDeploymentUrl(output: string): string | undefined {
-  return output
-    .match(/https:\/\/[^\s)]+/g)
-    ?.find((url) => url.includes('.workers.dev'));
 }
 
 function markCompletedInMemory(state: SetupState, step: string): SetupState {

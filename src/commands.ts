@@ -1,4 +1,5 @@
-import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
+import type { SpawnSyncReturns } from 'node:child_process';
+import spawn from 'cross-spawn';
 import type { SpawnSyncOptions } from 'node:child_process';
 import os from 'node:os';
 import process from 'node:process';
@@ -12,7 +13,13 @@ export function runCommand(
   config: RuntimeConfig
 ): CommandResult {
   printCommand(command, args);
-  const result = spawnWithConfig(command, args, config.targetDir, config, 'pipe');
+  const result = spawnWithConfig(
+    command,
+    args,
+    config.targetDir,
+    config,
+    'pipe'
+  );
   if (result.status !== 0) {
     throw commandError(command, args, result);
   }
@@ -46,13 +53,11 @@ export function runInheritedNonInteractive(
   config: RuntimeConfig
 ): void {
   printCommand(command, args);
-  const result = spawnWithConfig(
-    command,
-    args,
-    config.targetDir,
-    config,
-    ['ignore', 'inherit', 'inherit']
-  );
+  const result = spawnWithConfig(command, args, config.targetDir, config, [
+    'ignore',
+    'inherit',
+    'inherit',
+  ]);
   if (result.status !== 0) {
     throw commandError(command, args, result);
   }
@@ -64,7 +69,13 @@ export function runCommandAndEcho(
   config: RuntimeConfig
 ): CommandResult {
   printCommand(command, args);
-  const result = spawnWithConfig(command, args, config.targetDir, config, 'pipe');
+  const result = spawnWithConfig(
+    command,
+    args,
+    config.targetDir,
+    config,
+    'pipe'
+  );
   const stdout = bufferToString(result.stdout);
   const stderr = bufferToString(result.stderr);
 
@@ -78,7 +89,11 @@ export function runCommandAndEcho(
   return { stdout, stderr };
 }
 
-export function runInheritedRaw(command: string, args: string[], cwd: string): void {
+export function runInheritedRaw(
+  command: string,
+  args: string[],
+  cwd: string
+): void {
   printCommand(command, args);
   const result = spawnCommand(command, args, { cwd, stdio: 'inherit' });
   if (result.status !== 0) {
@@ -146,19 +161,14 @@ function spawnWithConfig(
   }) as SpawnSyncReturns<Buffer>;
 }
 
-export function shellForPlatform(platform: NodeJS.Platform): boolean {
-  return platform === 'win32';
-}
-
 function spawnCommand(
   command: string,
   args: string[],
   options: SpawnSyncOptions
 ): SpawnSyncReturns<Buffer | string> {
-  return spawnSync(command, args, {
-    ...options,
-    shell: shellForPlatform(process.platform),
-  });
+  // Resolve Windows .cmd shims and escape their arguments without exposing
+  // arbitrary user input to an unescaped shell command.
+  return spawn.sync(command, args, options);
 }
 
 function commandError(

@@ -37,7 +37,7 @@ export function printCompletedStep(title: string): void {
 export function printFinalSummary(config: RuntimeConfig): void {
   const productionUrl =
     (config.domain ? `https://${config.domain}` : config.deploymentUrl) ||
-    '(check Wrangler deploy output)';
+    '(check Cloudflare CLI deploy output)';
   const githubUrl = config.githubRepoUrl || githubRepoToUrl(config.githubRepo);
 
   printBox([

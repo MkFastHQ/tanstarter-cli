@@ -22,7 +22,7 @@ The CLI defaults D1, R2, KV, and Worker names to the project name; derives the G
 
 Verify these without printing secret values:
 
-- Node.js 20+, `pnpm`, `git`, and authenticated GitHub CLI (`gh`). The CLI can install missing `pnpm`, `git`, or `gh` when a supported package manager is available.
+- Node.js matching the template (`^22.23.0 || ^24.22.0 || >=26.12.0`), `pnpm`, `git`, and authenticated GitHub CLI (`gh`). The CLI can install missing `pnpm`, `git`, or `gh` when a supported package manager is available. The template supplies Cloudflare CLI (`cf`) as a project dependency and uses `cloudflare.config.ts`.
 - `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` are set in the invoking shell.
 - For Waffo, `WAFFO_MERCHANT_ID` and `WAFFO_PRIVATE_KEY` are also set. The CLI provisions Waffo in test mode only.
 

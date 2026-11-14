@@ -15,7 +15,7 @@ import {
   parseD1DatabaseId,
   parseKVNamespaceId,
 } from '../src/cloudflare.ts';
-import { runCommand, shellForPlatform } from '../src/commands.ts';
+import { runCommand } from '../src/commands.ts';
 import { createConfig } from '../src/config.ts';
 import { DEFAULT_TEMPLATE_URL } from '../src/constants.ts';
 import { ensureEnvFiles, formatEnvValue } from '../src/env.ts';
@@ -33,7 +33,8 @@ import {
   validateGithubRepo,
   validateSlug,
 } from '../src/validators.ts';
-import { stripJsonc, writeWranglerConfig } from '../src/wrangler-config.ts';
+import ts from 'typescript';
+import { writeCloudflareConfig } from '../src/cloudflare-config.ts';
 import {
   buildWaffoCanonicalRequest,
   buildWaffoWebhookUrl,
@@ -229,19 +230,15 @@ describe('validation helpers', () => {
   });
 });
 
-describe('wrangler output parsing', () => {
-  it('parses D1 database ids from JSON-like and plain output', () => {
-    const id = '12345678-1234-1234-1234-123456789abc';
-
-    expect(parseD1DatabaseId(`"database_id": "${id}"`)).toBe(id);
-    expect(parseD1DatabaseId(`Created database ${id}`)).toBe(id);
-  });
-
-  it('parses KV namespace ids from JSON-like and plain output', () => {
+describe('Cloudflare CLI output parsing', () => {
+  it('parses only the resource id from structured stdout', () => {
+    const uuid = '12345678-1234-1234-1234-123456789abc';
     const id = '0123456789abcdef0123456789abcdef';
-
-    expect(parseKVNamespaceId(`id = "${id}"`)).toBe(id);
-    expect(parseKVNamespaceId(`namespace ${id} created`)).toBe(id);
+    expect(parseD1DatabaseId(JSON.stringify({ uuid, name: 'demo' }))).toBe(uuid);
+    expect(parseKVNamespaceId(JSON.stringify({ id, title: 'demo' }))).toBe(id);
+    expect(parseD1DatabaseId(JSON.stringify({ name: uuid }))).toBeUndefined();
+    expect(parseKVNamespaceId(JSON.stringify({ title: id }))).toBeUndefined();
+    expect(parseD1DatabaseId('not JSON')).toBeUndefined();
   });
 });
 
@@ -312,21 +309,6 @@ describe('Cloudflare API helpers', () => {
 });
 
 describe('file content helpers', () => {
-  it('strips JSONC comments and trailing commas', () => {
-    const jsonc = `{
-      // comment
-      "name": "demo",
-      "nested": {
-        "enabled": true,
-      },
-    }`;
-
-    expect(JSON.parse(stripJsonc(jsonc))).toEqual({
-      name: 'demo',
-      nested: { enabled: true },
-    });
-  });
-
   it('quotes env values and escapes single quotes', () => {
     expect(formatEnvValue("that's fine")).toBe("'that\\'s fine'");
   });
@@ -367,79 +349,107 @@ describe('file content helpers', () => {
   });
 });
 
-describe('wrangler config writing', () => {
-  it('writes D1, R2, KV, and custom domain settings', () => {
+const TEMPLATE_CONFIG = `import { bindings, defineConfig } from 'cf/config';
+export const OPTIONAL_WORKER_ENV_KEYS = ['GOOGLE_CLIENT_ID'] as const;
+export default defineConfig({
+  worker: {
+    name: 'template',
+    // preserve compatibility and observability
+    compatibilityDate: '2026-07-04',
+    entrypoint: './src/server.ts',
+    observability: { logs: { enabled: true } },
+    domains: ['old.example.com'],
+    env: {
+      BETTER_AUTH_SECRET: bindings.secret(),
+      DB: bindings.d1({ name: 'template', id: 'old-db-id' }),
+      CACHE: bindings.kv({ id: 'old-kv-id' }),
+      BUCKET: bindings.r2({ name: 'template' }),
+    },
+  },
+});
+`;
+
+function evaluateConfig(content: string) {
+  const js = ts.transpileModule(content.replace(/import .* from 'cf\/config';/, ''), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS },
+  }).outputText;
+  const exports: Record<string, any> = {};
+  const bindings = {
+    d1: (value: object) => ({ type: 'd1', ...value }),
+    kv: (value: object) => ({ type: 'kv', ...value }),
+    r2: (value: object) => ({ type: 'r2', ...value }),
+    secret: () => ({ type: 'secret' }),
+  };
+  new Function('exports', 'bindings', 'defineConfig', js)(exports, bindings, (value: unknown) => value);
+  return exports;
+}
+
+describe('Cloudflare config writing', () => {
+  it('updates resources while preserving template exports, secrets, and worker settings', () => {
     const config = createTestConfig({ domain: 'app.example.com' });
-    fs.writeFileSync(
-      path.join(config.targetDir, 'wrangler.jsonc'),
-      `{
-        // existing template setting
-        "compatibility_date": "2026-07-04",
-      }`,
-      'utf8'
-    );
-
-    writeWranglerConfig(config);
-
-    const wranglerConfig = JSON.parse(
-      stripJsonc(fs.readFileSync(path.join(config.targetDir, 'wrangler.jsonc'), 'utf8'))
-    );
-
-    expect(wranglerConfig).toMatchObject({
-      compatibility_date: '2026-07-04',
+    const file = path.join(config.targetDir, 'cloudflare.config.ts');
+    fs.writeFileSync(file, TEMPLATE_CONFIG);
+    writeCloudflareConfig(config);
+    const content = fs.readFileSync(file, 'utf8');
+    const evaluated = evaluateConfig(content);
+    expect(evaluated.OPTIONAL_WORKER_ENV_KEYS).toEqual(['GOOGLE_CLIENT_ID']);
+    expect(evaluated.default.worker).toMatchObject({
       name: 'demo-app',
-      routes: [{ pattern: 'app.example.com', custom_domain: true }],
-      d1_databases: [
-        {
-          binding: 'DB',
-          database_name: 'demo-app-db',
-          database_id: 'database-id',
-          migrations_dir: './src/db/migrations',
-        },
-      ],
-      r2_buckets: [
-        {
-          binding: 'BUCKET',
-          bucket_name: 'demo-app-bucket',
-        },
-      ],
-      kv_namespaces: [
-        {
-          binding: 'CACHE',
-          id: '0123456789abcdef0123456789abcdef',
-        },
-      ],
+      compatibilityDate: '2026-07-04',
+      entrypoint: './src/server.ts',
+      observability: { logs: { enabled: true } },
+      domains: ['app.example.com'],
+      env: {
+        BETTER_AUTH_SECRET: { type: 'secret' },
+        DB: { type: 'd1', name: config.d1DatabaseName, id: config.d1DatabaseId },
+        CACHE: { type: 'kv', id: config.kvNamespaceId },
+        BUCKET: { type: 'r2', name: config.r2BucketName },
+      },
     });
+    expect(content).toContain('// preserve compatibility and observability');
+    writeCloudflareConfig(config);
+    expect(fs.readFileSync(file, 'utf8')).toBe(content);
   });
 
-  it('removes active routes and leaves commented guidance without a domain', () => {
+  it('disables template custom domains when no domain is selected', () => {
     const config = createTestConfig();
-    fs.writeFileSync(
-      path.join(config.targetDir, 'wrangler.jsonc'),
-      JSON.stringify({
-        routes: [{ pattern: 'old.example.com', custom_domain: true }],
-      }),
-      'utf8'
-    );
+    const file = path.join(config.targetDir, 'cloudflare.config.ts');
+    fs.writeFileSync(file, TEMPLATE_CONFIG);
+    writeCloudflareConfig(config);
+    expect(evaluateConfig(fs.readFileSync(file, 'utf8')).default.worker.domains).toEqual([]);
+  });
 
-    writeWranglerConfig(config);
+  it('adds missing properties without requiring trailing commas', () => {
+    const config = createTestConfig();
+    const file = path.join(config.targetDir, 'cloudflare.config.ts');
+    fs.writeFileSync(file, `import { bindings, defineConfig } from 'cf/config';
+export default defineConfig({ worker: { compatibilityDate: '2026-07-04', env: {} } });`);
+    writeCloudflareConfig(config);
+    expect(evaluateConfig(fs.readFileSync(file, 'utf8')).default.worker.env.DB.id).toBe(config.d1DatabaseId);
+  });
 
-    const content = fs.readFileSync(
-      path.join(config.targetDir, 'wrangler.jsonc'),
-      'utf8'
-    );
-    const wranglerConfig = JSON.parse(stripJsonc(content));
-
-    expect(wranglerConfig.routes).toBeUndefined();
-    expect(content).toContain('Custom domains are disabled by TanStarter CLI.');
+  it('rejects unsupported configs without overwriting the original', () => {
+    const config = createTestConfig();
+    const file = path.join(config.targetDir, 'cloudflare.config.ts');
+    const content = `export default defineConfig(() => ({ worker: {} }));`;
+    fs.writeFileSync(file, content);
+    expect(() => writeCloudflareConfig(config)).toThrow('Expected literal');
+    expect(fs.readFileSync(file, 'utf8')).toBe(content);
+    fs.unlinkSync(file);
+    expect(() => writeCloudflareConfig(config)).toThrow('cloudflare.config.ts is required');
   });
 });
 
 describe('command runner', () => {
-  it('uses the shell on Windows so .cmd shims can be resolved from PATH', () => {
-    expect(shellForPlatform('win32')).toBe(true);
-    expect(shellForPlatform('darwin')).toBe(false);
-    expect(shellForPlatform('linux')).toBe(false);
+  it('preserves shell metacharacters, quotes, and JSON as literal arguments', () => {
+    const values = ['you&calc.exe&x@example.com', '%PATH%', 'a|b', '$(whoami)', '"quoted"', JSON.stringify([{ value: ['you&x@example.com'] }])];
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const result = runCommand(process.execPath, ['-e', 'console.log(JSON.stringify(process.argv.slice(1)))', '--', ...values], createTestConfig());
+      expect(JSON.parse(result.stdout)).toEqual(values);
+    } finally {
+      log.mockRestore();
+    }
   });
 
   it('prints the command and injects Cloudflare environment variables', () => {
