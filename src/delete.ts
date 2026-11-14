@@ -102,6 +102,7 @@ function isAlreadyDeleted(message: string): boolean {
     'Worker does not exist',
     'namespace not found',
     'specified bucket does not exist',
+    '[7404] The database',
     // Generic 404/Not Found can also hide authorization failures (notably GitHub).
     // Only accept explicit resource-specific absence messages.
   ].some((pattern) => message.includes(pattern));

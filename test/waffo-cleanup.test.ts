@@ -38,6 +38,43 @@ function setup() {
 }
 
 describe('deletion completeness', () => {
+  it.each([
+    ['owner', 'repo, delete_repo', true],
+    ['owner', 'delete_repo', false],
+    ['someone-else', 'repo, delete_repo', false],
+  ])('handles a repository 404 for user %s with scopes %s', (login, scopes, absent) => {
+    const { config } = setup();
+    config.githubRepo = 'owner/demo';
+    vi.spyOn(commands, 'runCommandAndEcho').mockImplementation(() => {
+      throw new Error('HTTP 404: Not Found');
+    });
+    vi.spyOn(commands, 'runCommand').mockReturnValue({
+      stdout: `HTTP/2.0 200 OK\nx-oauth-scopes: ${scopes}\n\n${JSON.stringify({ login })}`,
+      stderr: '',
+    });
+    const remove = () => git.deleteGithubRepo(parseArgs(['delete', 'demo']), config);
+    if (absent) expect(remove).not.toThrow();
+    else expect(remove).toThrow('HTTP 404');
+  });
+
+  it('treats the explicit Cloudflare D1 absence code as an already deleted database', async () => {
+    const { config } = setup();
+    config.d1DatabaseId = 'missing-database';
+    config.kvNamespaceId = 'kv';
+    config.waffoStoreId = '';
+    config.waffoWebhookId = '';
+    config.waffoProductIds = { proMonthly: '', proYearly: '', lifetime: '' };
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });
+    vi.spyOn(cloudflare, 'deleteWorker').mockImplementation(() => {});
+    vi.spyOn(cloudflare, 'deleteKV').mockImplementation(() => {});
+    vi.spyOn(cloudflare, 'deleteR2').mockImplementation(async () => {});
+    vi.spyOn(cloudflare, 'deleteD1').mockImplementation(() => {
+      throw new Error('[7404] The database missing-database could not be found');
+    });
+    vi.spyOn(git, 'deleteGithubRepo').mockImplementation(() => {});
+    await expect(deleteProject(parseArgs(['delete', 'demo']), config)).resolves.toBeUndefined();
+    expect(console.log).toHaveBeenCalledWith('✅ D1 database was already deleted.');
+  });
   it('removes the matching custom-domain binding by ID', async () => {
     const { config, fetchMock } = setup();
     config.domain = 'app.example.com';

@@ -4,7 +4,7 @@ import path from 'node:path';
 import process from 'node:process';
 
 import { DEFAULT_TEMPLATE_URL, STATE_DIR } from './constants.js';
-import { runCommandAndEcho, runInheritedRaw } from './commands.js';
+import { runCommand, runCommandAndEcho, runInheritedRaw } from './commands.js';
 import type { CliOptions, RuntimeConfig } from './types.js';
 
 export function cloneTemplate(targetDir: string, resume: boolean): void {
@@ -100,7 +100,32 @@ export function deleteGithubRepo(
   config: RuntimeConfig
 ): void {
   const repo = options.githubRepo || config.githubRepo || config.projectName;
-  runCommandAndEcho('gh', ['repo', 'delete', repo, '--yes'], config);
+  try {
+    runCommandAndEcho('gh', ['repo', 'delete', repo, '--yes'], config);
+  } catch (error) {
+    // GitHub masks private repositories as 404 when access is missing. Only
+    // accept absence for the authenticated owner's repos with full repo scope.
+    if (error instanceof Error && /HTTP 404\b/.test(error.message) &&
+        canConfirmOwnedRepoAbsence(repo, config)) {
+      console.log(`GitHub repository already absent: ${repo}`);
+      return;
+    }
+    throw error;
+  }
+}
+
+function canConfirmOwnedRepoAbsence(repo: string, config: RuntimeConfig): boolean {
+  try {
+    const { stdout } = runCommand('gh', ['api', '--include', 'user'], config);
+    const scopes = stdout.match(/^x-oauth-scopes:\s*([^\r\n]*)/im)?.[1]
+      ?.split(',').map((scope) => scope.trim());
+    const user = JSON.parse(stdout.slice(stdout.indexOf('{'))) as { login?: string };
+    const owner = repo.includes('/') ? repo.split('/')[0] : user.login;
+    return Boolean(scopes?.includes('repo') && user.login &&
+      owner?.toLowerCase() === user.login.toLowerCase());
+  } catch {
+    return false;
+  }
 }
 
 export function commitAndPush(config: RuntimeConfig): void {
