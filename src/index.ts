@@ -18,6 +18,7 @@ import {
 } from './cloudflare.js';
 import {
   runCommandAndEcho,
+  runCommand,
   runInherited,
   runInheritedNonInteractive,
 } from './commands.js';
@@ -37,6 +38,10 @@ import {
 } from './git.js';
 import { assertNodeVersion, preflight } from './preflight.js';
 import { configureSetup } from './prompt.js';
+import { configureWebsiteMail } from './website.js';
+import { sendTestEmail } from './email-test.js';
+import { verifyGithubDeployment } from './github-deployment.js';
+import { printAcceptanceReport } from './acceptance.js';
 import {
   applyEmailOptions,
   markCompleted,
@@ -64,7 +69,7 @@ import {
   verifyWaffoWebhookEndpoint,
 } from './waffo.js';
 
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
   assertNodeVersion();
 
@@ -202,6 +207,33 @@ async function main(): Promise<void> {
       },
     },
     {
+      id: 'configure-website-mail',
+      title: 'Configure application mail sender and support address',
+      run: () => {
+        // Older completed initializations must deploy and push this new config.
+        // Persist invalidation first so interruption cannot leave stale success.
+        const rerun = new Set([
+          'deploy',
+          'sync-worker-secrets',
+          'verify-public-deployment',
+          'commit-and-push',
+          'verify-github-deployment',
+          'verify-final-deployment',
+        ]);
+        const config = { ...state.config };
+        delete config.initialCommitSha;
+        delete config.githubDeployment;
+        state = writeState(state.config.targetDir, {
+          ...state,
+          completedSteps: state.completedSteps.filter(
+            (step) => !rerun.has(step)
+          ),
+          config,
+        });
+        configureWebsiteMail(state.config);
+      },
+    },
+    {
       id: 'cf-typegen',
       title: 'Generate Cloudflare binding types',
       run: () => runInherited('pnpm', ['run', 'cf-typegen'], state.config),
@@ -320,7 +352,64 @@ async function main(): Promise<void> {
     {
       id: 'commit-and-push',
       title: 'Commit and push initial project',
-      run: () => commitAndPush(state.config),
+      run: () => {
+        // Generated TypeScript must pass the template's read-only CI formatter.
+        runInheritedNonInteractive(
+          'pnpm',
+          [
+            'exec',
+            'biome',
+            'format',
+            '--write',
+            'cloudflare.config.ts',
+            ...(state.config.emailSending ? ['src/config/website.ts'] : []),
+          ],
+          state.config
+        );
+        commitAndPush(state.config);
+        const config = {
+          ...state.config,
+          initialCommitSha: runCommand(
+            'git',
+            ['rev-parse', 'HEAD'],
+            state.config
+          ).stdout.trim(),
+        };
+        delete config.githubDeployment;
+        state = writeState(state.config.targetDir, { ...state, config });
+      },
+    },
+    {
+      id: 'verify-github-deployment',
+      title: 'Confirm initialization commit GitHub Actions deployment',
+      run: async () => {
+        if (!state.config.initialCommitSha) {
+          state = writeState(state.config.targetDir, {
+            ...state,
+            config: {
+              ...state.config,
+              initialCommitSha: runCommand(
+                'git',
+                ['rev-parse', 'HEAD'],
+                state.config
+              ).stdout.trim(),
+            },
+          });
+        }
+        await verifyGithubDeployment(state.config, {
+          onRun: (githubDeployment) => {
+            state = writeState(state.config.targetDir, {
+              ...state,
+              config: { ...state.config, githubDeployment },
+            });
+          },
+        });
+      },
+    },
+    {
+      id: 'verify-final-deployment',
+      title: 'Verify public URL after GitHub Actions deployment',
+      run: () => verifyPublicDeployment(state.config),
     },
   ];
 
@@ -338,6 +427,11 @@ async function main(): Promise<void> {
     ...state,
     config: await configureSetup(options, state.config),
   };
+  if (state.config.emailTestTo && !state.config.emailSending) {
+    throw new Error(
+      '--email-test-to requires Cloudflare Email Sending; pass --email-sending with a custom domain.'
+    );
+  }
   printCompletedStep('Review project and setup options');
 
   const activeSteps = steps.filter((step) =>
@@ -352,7 +446,12 @@ async function main(): Promise<void> {
     }
 
     printStep(index + 3, totalSteps, step.title);
-    await step.run();
+    try {
+      await step.run();
+    } catch (error) {
+      printAcceptanceReport(state);
+      throw error;
+    }
     state = markCompleted(state.config.targetDir, state, step.id);
     printCompletedStep(step.title);
   }
@@ -376,14 +475,38 @@ async function main(): Promise<void> {
     }
   }
 
+  if (
+    state.config.emailTestTo &&
+    !state.completedSteps.includes('test-email')
+  ) {
+    // Record the attempt before sending: a crash or timeout must not cause an
+    // unsolicited duplicate on resume. An explicit --email-test-to opts in again.
+    state = markCompleted(state.config.targetDir, state, 'test-email');
+    console.log(
+      `Sending one provider test email to ${state.config.emailTestTo}.`
+    );
+    try {
+      const emailTestResult = await sendTestEmail(state.config);
+      state = writeState(state.config.targetDir, {
+        ...state,
+        config: { ...state.config, emailTestResult },
+      });
+    } catch {
+      console.warn(
+        'Could not perform the email test; verify application mail configuration and explicitly request another test when ready.'
+      );
+    }
+  }
   printFinalSummary(state.config);
+  printAcceptanceReport(state);
 }
 
 function shouldIncludeStep(
   stepId: string,
   config: SetupState['config']
 ): boolean {
-  if (stepId === 'enable-email-sending') return Boolean(config.emailSending);
+  if (stepId === 'enable-email-sending' || stepId === 'configure-website-mail')
+    return Boolean(config.emailSending);
   if (stepId.startsWith('waffo-')) {
     return config.paymentProvider === 'waffo';
   }

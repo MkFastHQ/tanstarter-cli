@@ -38,7 +38,10 @@ export function createConfig(options: CliOptions): RuntimeConfig {
     targetDir: options.targetDir,
     domain: normalizeDomain(options.domain),
     emailSending: options.emailSending ?? false,
-    ...(options.emailForwardTo ? { emailForwardTo: options.emailForwardTo } : {}),
+    ...(options.emailForwardTo
+      ? { emailForwardTo: options.emailForwardTo }
+      : {}),
+    ...(options.emailTestTo ? { emailTestTo: options.emailTestTo } : {}),
     githubRepo: options.githubRepo || options.projectName,
     cloudflareAccountId,
     cloudflareApiToken,

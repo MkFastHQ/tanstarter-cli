@@ -64,7 +64,8 @@ tanstarter create <project-name> --resume
 参数：
 
 - `--domain <domain>`：配置 Cloudflare 自定义域名路由。
-- `--email-sending`：为 `--domain` 开启 Cloudflare Email Sending（可选）。
+- `--email-sending`：为 `--domain` 开启 Cloudflare Email Sending，并配置应用邮件服务和地址（可选）。
+- `--email-test-to <email>`：明确请求部署后发送一封服务商测试邮件（须启用 Email Sending），实际收信仍需人工确认。
 - `--payment <none|waffo>`：生成项目的支付方式。选择 `waffo` 时，CLI 使用模板内置的月付、年付和一次性产品，并在初始化过程中自动创建 Waffo 门店、产品和 Webhook。
 - `-y, --yes`：自动接受默认域名、资源名称、GitHub 仓库和最终确认。除非已传入 `--payment`，否则仍会询问支付方式。
 - `--repo <owner/name>`：创建指定的 GitHub 仓库。如果省略，TanStarter CLI 会默认使用当前 GitHub CLI 登录账号和项目名，例如 `open-fox/my-app`。
@@ -133,6 +134,10 @@ Waffo 仍可能要求在控制台完成商户验证、企业资料和收款账�
 12. 创建 GitHub 仓库。
 13. 同步 GitHub Actions secrets。
 14. 提交代码并推送到 `main` 分支。
+15. 按初始化提交的 SHA 确认 `deploy.yml` 的 push 部署结果，并输出运行链接。失败会停止初始化，修复并重新运行工作流后可续跑；工作流未触发、被禁用或长时间运行时，约 20 分钟加查询耗时后超时。
+16. GitHub 部署成功后再次检查公网地址，并输出功能验收报告。可选转发和明确请求的测试邮件在报告前执行。
+
+报告区分已完成的检查、已配置资源、失败和人工待办。HTTP 成功不代表登录、收信、上传或支付已通过验证。报告静态读取网站配置，不执行项目代码或读取 secret 值；动态配置列为人工确认。按报告验收已启用的登录、邮件、存储、Newsletter/通知、Waffo 沙箱支付和管理员访问。CLI 继续聚焦初始化，后续部署使用生成项目已有的工作流。
 
 生成的仓库使用 `origin` 指向新建的 GitHub 仓库，并使用 `upstream` 指向
 `https://github.com/MkFastHQ/mkfast-template.git`。由于模板历史会被保留，
@@ -162,7 +167,7 @@ MIT
 npx tanstarter-cli@latest create my-app --domain example.com --email-sending
 ```
 
-交互模式中选择自定义域名后也会询问是否开启，默认跳过。CLI 会在 Cloudflare 认证后运行下列命令，自动添加发信 DNS 记录并显示状态；失败时修复问题后用 `--resume` 继续。Token 需要 Email Sending Edit、Zone Read 和 DNS Edit 权限，资源范围须包含该域名。此步骤不配置收件转发、不发送测试邮件，也不修改模板发件地址；仍需在 `src/config/website.ts` 中设置同域名的 `fromEmail`。删除项目时保留域名的邮件配置。
+交互模式中选择自定义域名后也会询问是否开启，默认跳过。CLI 会在 Cloudflare 认证后运行下列命令，自动添加发信 DNS 记录并显示状态；失败时修复问题后用 `--resume` 继续。Token 需要 Email Sending Edit、Zone Read 和 DNS Edit 权限，资源范围须包含该域名。CLI 设置 `websiteConfig.mail.enable=true`、`provider='cloudflare'`，并将空地址或模板默认的发件/客服地址替换为 `<项目名> <support@<域名>>`。自定义发件地址须使用已开通的域名，自定义客服地址会保留；动态邮件配置须先手动调整。旧初始化续跑新增此步骤时，会重新部署并推送邮件配置。删除项目时保留域名邮件配置，收件转发需单独配置。
 
 ```bash
 pnpm exec cf email-sending subdomains create --zone <zone-id> --name example.com
@@ -173,6 +178,16 @@ pnpm exec cf email-sending subdomains dns status <subdomain-id> --zone <zone-id>
 ```
 
 CLI 会定位所属 zone，续跑时复用已启用的发信域名，再修复并检查 DNS。支持为子域名开通发信；已被禁用的发信域名须先手动检查。
+
+### 可选测试发信
+
+```bash
+tanstarter create my-app --domain example.com --email-sending --email-test-to you@example.net
+# 在父目录明确请求再次发送：
+tanstarter create my-app --resume --email-test-to you@example.net
+```
+
+只有 `--email-test-to` 会请求测试发送，收件转发本身不会触发测试邮件。测试使用应用配置的发件地址直接调用 Cloudflare REST API，Token 还须具备 Email Send 权限；它不验证线上应用的运行时凭证、邮件模板或注册/重置流程。报告区分服务商报告已投递、排队、拒绝/退信和结果未知；实际收信、垃圾箱位置、注册验证和密码重置需人工检查。请求前会保存发送尝试，超时、中断或普通 `--resume` 不会自动重发；再次传入 `--email-test-to` 才请求重试。测试失败会列入报告，不撤销已完成的初始化。
 
 ### 可选收件转发
 

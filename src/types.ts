@@ -16,6 +16,7 @@ export interface CliOptions {
   domain: string;
   emailSending?: boolean;
   emailForwardTo?: string;
+  emailTestTo?: string;
   githubRepo?: string;
   payment?: PaymentProvider;
   acceptDefaults: boolean;
@@ -28,8 +29,12 @@ export interface RuntimeConfig {
   domain: string;
   emailSending?: boolean;
   emailForwardTo?: string;
+  emailTestTo?: string;
   githubRepo: string;
   githubRepoUrl?: string;
+  initialCommitSha?: string;
+  githubDeployment?: GithubDeployment;
+  emailTestResult?: EmailTestResult;
   deploymentUrl?: string;
   cloudflareAccountId: string;
   cloudflareApiToken: string;
@@ -46,6 +51,19 @@ export interface RuntimeConfig {
   waffoStoreId: string;
   waffoProductIds: WaffoProductIds;
   waffoWebhookId: string;
+}
+
+export interface GithubDeployment {
+  headSha: string;
+  url: string;
+  status: string;
+  conclusion: string | null;
+}
+
+export interface EmailTestResult {
+  to: string;
+  from: string;
+  status: 'accepted' | 'queued' | 'failed' | 'unknown';
 }
 
 export interface SetupState {

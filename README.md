@@ -64,7 +64,8 @@ tanstarter create <project-name> --resume
 Options:
 
 - `--domain <domain>`: configure a Cloudflare custom domain route.
-- `--email-sending`: onboard `--domain` for Cloudflare Email Sending (optional).
+- `--email-sending`: onboard `--domain` for Cloudflare Email Sending and configure the application's mail provider and addresses (optional).
+- `--email-test-to <email>`: explicitly request one provider test email after deployment (requires Email Sending). Inbox receipt remains a manual check.
 - `--payment <none|waffo>`: payment method for the generated project. With `waffo`, the CLI uses the template's built-in monthly, yearly, and lifetime products, then creates the Waffo store, products, and webhook during setup.
 - `-y, --yes`: accept default domain, resource names, GitHub repository, and final confirmation. It still asks for payment unless `--payment` is set.
 - `--repo <owner/name>`: create this GitHub repository. If omitted, TanStarter CLI defaults to the current GitHub CLI login and project name, for example `open-fox/my-app`.
@@ -133,6 +134,10 @@ The setup flow:
 12. Creates a GitHub repository.
 13. Syncs GitHub Actions secrets.
 14. Commits and pushes to `main`.
+15. Confirms the `deploy.yml` push workflow for that initialization commit SHA and prints its run URL. A failed run stops setup; resume after fixing and rerunning it. A missing/disabled workflow or a long-running deployment times out after approximately 20 minutes plus query time.
+16. Checks the public URL again after GitHub deployment, then prints a feature acceptance report. Optional forwarding and an explicitly requested test email run before the report.
+
+The report distinguishes completed checks, configured resources, failures, and manual tasks. HTTP success does not prove authentication, inbox receipt, uploads, or payments work. It uses static website configuration without executing project code or reading secret values. Dynamic settings are listed for manual verification. Follow the report to test enabled login methods, email, storage, newsletter/notifications, Waffo sandbox checkout, and admin access. This CLI remains focused on initialization; later deployments use the generated repository's existing workflow.
 
 The generated repository uses `origin` for your new GitHub repository and
 `upstream` for `https://github.com/MkFastHQ/mkfast-template.git`. Because the
@@ -163,7 +168,7 @@ With Cloudflare DNS and a Workers Paid plan, opt in to automatic domain onboardi
 npx tanstarter-cli@latest create my-app --domain example.com --email-sending
 ```
 
-Interactive setup also asks after choosing a custom domain; the default is to skip. After Cloudflare authentication, the CLI runs the commands below to add sending DNS records and display settings. Fix failures and continue with `--resume`. The token needs Email Sending Edit, Zone Read, and DNS Edit permissions scoped to the domain. This step does not configure inbound routing, send a test email, or update the template sender address; set `fromEmail` in `src/config/website.ts` to an address on the onboarded domain. Project deletion preserves domain email configuration.
+Interactive setup also asks after choosing a custom domain; the default is to skip. After Cloudflare authentication, the CLI runs the commands below to add sending DNS records and display settings. Fix failures and continue with `--resume`. The token needs Email Sending Edit, Zone Read, and DNS Edit permissions scoped to the domain. The CLI sets `websiteConfig.mail.enable=true` and `provider='cloudflare'`. Empty or template-default sender/support addresses become `<project-name> <support@<domain>>`; custom sender addresses must match the onboarded domain, and custom support addresses are preserved. Unsupported dynamic mail configuration requires manual adjustment. Resuming an older initialization that gains this configuration step redeploys and pushes the changed mail settings. Project deletion preserves domain email configuration. Inbound routing is separate.
 
 ```bash
 pnpm exec cf email-sending subdomains create --zone <zone-id> --name example.com
@@ -174,6 +179,16 @@ pnpm exec cf email-sending subdomains dns status <subdomain-id> --zone <zone-id>
 ```
 
 The CLI resolves the containing zone and reuses an existing enabled sending domain on resume before repairing and inspecting its DNS. Sending subdomains are supported. A disabled sending domain requires manual review.
+
+### Optional test sending
+
+```bash
+tanstarter create my-app --domain example.com --email-sending --email-test-to you@example.net
+# Explicitly request another send from the parent directory:
+tanstarter create my-app --resume --email-test-to you@example.net
+```
+
+Only `--email-test-to` requests a send; forwarding alone never sends a test message. The test uses the configured sender and the Cloudflare REST API directly, so the token also needs Email Send permission. It does not test the deployed application's runtime credentials, templates, or signup/reset flow. The report distinguishes provider-reported delivery, queued messages, rejection/bounce, and an unknown outcome. Confirm actual receipt, spam placement, registration verification and password reset yourself. The attempt is saved before the request; a timeout, interruption, or plain `--resume` never automatically resends it. Pass `--email-test-to` explicitly to try again. A test failure is reported without undoing initialization.
 
 ### Optional inbound forwarding
 

@@ -1,9 +1,6 @@
 import type { RuntimeConfig } from './types.js';
 import { getPublicBaseUrl } from './deployment.js';
-import {
-  buildWaffoWebhookUrl,
-  WAFFO_TEMPLATE_PRODUCTS,
-} from './waffo.js';
+import { buildWaffoWebhookUrl, WAFFO_TEMPLATE_PRODUCTS } from './waffo.js';
 
 const BOX_WIDTH = 96;
 
@@ -27,7 +24,9 @@ export function printStep(
   total: number | undefined,
   title: string
 ): void {
-  printBox([`🚀 ${total ? `Step ${index}/${total}` : `Step ${index}`}: ${title}`]);
+  printBox([
+    `🚀 ${total ? `Step ${index}/${total}` : `Step ${index}`}: ${title}`,
+  ]);
 }
 
 export function printCompletedStep(title: string): void {
@@ -41,7 +40,7 @@ export function printFinalSummary(config: RuntimeConfig): void {
   const githubUrl = config.githubRepoUrl || githubRepoToUrl(config.githubRepo);
 
   printBox([
-    '🎉 TanStarter project is ready',
+    '🎉 TanStarter project initialization completed',
     '',
     `Project: ${config.projectName}`,
     `Directory: ${config.targetDir}`,
@@ -62,9 +61,7 @@ export function printFinalSummary(config: RuntimeConfig): void {
           `${product.name}: ${productIds[product.slot] || '(not created)'}`
       ),
       `Webhook: ${
-        publicBaseUrl
-          ? buildWaffoWebhookUrl(publicBaseUrl)
-          : '(not registered)'
+        publicBaseUrl ? buildWaffoWebhookUrl(publicBaseUrl) : '(not registered)'
       }`,
     ]);
   }

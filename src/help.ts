@@ -13,7 +13,8 @@ Options:
   --repo <owner/name>     Create or use this GitHub repo
   --domain <domain>       Cloudflare custom domain route
   --email-forward-to <email>  Forward support@domain (optional; failures do not stop setup)
-  --email-sending         Onboard --domain for Cloudflare Email Sending (Workers Paid)
+  --email-sending         Onboard --domain and configure application Cloudflare mail (Workers Paid)
+  --email-test-to <email> Send one provider test email (requires Email Sending; inbox receipt is manual)
   --payment <none|waffo>  Payment method for the generated project
   -y, --yes               Accept default domain, resource names, repository, and confirmation
   --resume                Resume a failed setup with tanstarter create <project-name> --resume

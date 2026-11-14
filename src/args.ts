@@ -16,6 +16,7 @@ export function parseArgs(args: string[]): CliOptions {
   let resume = false;
   let emailSending = false;
   let emailForwardTo: string | undefined;
+  let emailTestTo: string | undefined;
 
   for (let index = 0; index < args.length; index++) {
     const arg = args[index];
@@ -30,11 +31,22 @@ export function parseArgs(args: string[]): CliOptions {
       process.exit(0);
     }
     if (arg === '--email-forward-to' || arg.startsWith('--email-forward-to=')) {
-      emailForwardTo = arg === '--email-forward-to'
-        ? requireValue(args, ++index, '--email-forward-to')
-        : arg.slice('--email-forward-to='.length);
+      emailForwardTo =
+        arg === '--email-forward-to'
+          ? requireValue(args, ++index, '--email-forward-to')
+          : arg.slice('--email-forward-to='.length);
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailForwardTo)) {
         throw new Error('--email-forward-to must be an email address.');
+      }
+      continue;
+    }
+    if (arg === '--email-test-to' || arg.startsWith('--email-test-to=')) {
+      emailTestTo =
+        arg === '--email-test-to'
+          ? requireValue(args, ++index, '--email-test-to')
+          : arg.slice('--email-test-to='.length);
+      if (!/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(emailTestTo)) {
+        throw new Error('--email-test-to must be an email address.');
       }
       continue;
     }
@@ -128,6 +140,7 @@ export function parseArgs(args: string[]): CliOptions {
     ...(payment ? { payment } : {}),
     ...(emailSending ? { emailSending } : {}),
     ...(emailForwardTo ? { emailForwardTo } : {}),
+    ...(emailTestTo ? { emailTestTo } : {}),
     acceptDefaults,
     resume,
   };

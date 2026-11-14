@@ -12,7 +12,8 @@ export function applyEmailOptions(
   if (options.emailSending && !state.config.domain) {
     throw new Error('--email-sending requires --domain.');
   }
-  if (!options.emailSending && !options.emailForwardTo) return state;
+  if (!options.emailSending && !options.emailForwardTo && !options.emailTestTo)
+    return state;
   const next: SetupState = {
     ...state,
     config: {
@@ -21,12 +22,15 @@ export function applyEmailOptions(
       ...(options.emailForwardTo
         ? { emailForwardTo: options.emailForwardTo }
         : {}),
+      ...(options.emailTestTo ? { emailTestTo: options.emailTestTo } : {}),
     },
     completedSteps: state.completedSteps.filter(
       (step) =>
-        !(options.emailForwardTo && step === 'configure-email-forwarding')
+        !(options.emailForwardTo && step === 'configure-email-forwarding') &&
+        !(options.emailTestTo && step === 'test-email')
     ),
   };
+  if (options.emailTestTo) delete next.config.emailTestResult;
   // New projects are saved after cloning. Resumed options must survive even
   // when every normal step is skipped and the email operation fails.
   return options.resume ? writeState(next.config.targetDir, next) : next;

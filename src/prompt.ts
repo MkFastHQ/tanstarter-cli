@@ -4,11 +4,7 @@ import path from 'node:path';
 import process from 'node:process';
 
 import { WAFFO_DOCS_URL } from './constants.js';
-import type {
-  CliOptions,
-  PaymentProvider,
-  RuntimeConfig,
-} from './types.js';
+import type { CliOptions, PaymentProvider, RuntimeConfig } from './types.js';
 import {
   normalizeDomain,
   normalizeSlug,
@@ -16,10 +12,7 @@ import {
   validateGithubRepo,
   validateSlug,
 } from './validators.js';
-import {
-  WAFFO_TEMPLATE_PRODUCTS,
-  waffoStoreNameForProject,
-} from './waffo.js';
+import { WAFFO_TEMPLATE_PRODUCTS, waffoStoreNameForProject } from './waffo.js';
 
 export async function configureSetup(
   options: CliOptions,
@@ -55,7 +48,10 @@ async function promptForMissingOptions(
     nextConfig = applyProjectName(config, await askProjectName(rl));
   }
   if (!options.githubRepo) {
-    githubRepo = getDefaultGithubRepo(nextConfig.projectName, nextConfig.githubRepo);
+    githubRepo = getDefaultGithubRepo(
+      nextConfig.projectName,
+      nextConfig.githubRepo
+    );
   }
 
   let paymentProvider: PaymentProvider = nextConfig.paymentProvider;
@@ -134,7 +130,10 @@ async function promptForMissingOptions(
 }
 
 function requireWaffoCredentials(): void {
-  if (!process.env.WAFFO_MERCHANT_ID?.trim() || !process.env.WAFFO_PRIVATE_KEY) {
+  if (
+    !process.env.WAFFO_MERCHANT_ID?.trim() ||
+    !process.env.WAFFO_PRIVATE_KEY
+  ) {
     throw new Error(
       [
         'WAFFO_MERCHANT_ID and WAFFO_PRIVATE_KEY are required for Waffo payment.',
@@ -235,8 +234,13 @@ async function confirmSetup(
   console.log(
     `  Domain: ${config.domain || '(none; workers.dev fallback after deploy)'}`
   );
-  console.log(`  Email Sending: ${config.emailSending ? config.domain : '(skip)'}`);
+  console.log(
+    `  Email Sending: ${config.emailSending ? config.domain : '(skip)'}`
+  );
   console.log(`  Email forwarding: ${config.emailForwardTo || '(skip)'}`);
+  console.log(
+    `  Provider test email: ${config.emailTestTo || '(skip; no message sent)'}`
+  );
   console.log(`  GitHub repo: ${config.githubRepo}`);
   if (config.paymentProvider === 'waffo') {
     console.log('  Payment: Waffo');
