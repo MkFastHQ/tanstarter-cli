@@ -9,6 +9,8 @@ import { parseArgs } from './args.js';
 import {
   cloudflareAuth,
   applyD1Migrations,
+  enableEmailSending,
+  configureEmailForwarding,
   createD1,
   createKV,
   createR2,
@@ -36,6 +38,7 @@ import {
 import { assertNodeVersion, preflight } from './preflight.js';
 import { configureSetup } from './prompt.js';
 import {
+  applyEmailOptions,
   markCompleted,
   readExistingState,
   readState,
@@ -87,6 +90,7 @@ async function main(): Promise<void> {
   if (options.resume && state.completedSteps.includes('clone-template')) {
     assertCloudflareProject(state.config.targetDir);
   }
+  state = applyEmailOptions(state, options);
 
   const steps: Array<{
     id: string;
@@ -118,6 +122,11 @@ async function main(): Promise<void> {
       id: 'cloudflare-auth',
       title: 'Verify Cloudflare authentication',
       run: () => cloudflareAuth(state.config),
+    },
+    {
+      id: 'enable-email-sending',
+      title: 'Onboard domain for Cloudflare Email Sending',
+      run: () => enableEmailSending(state.config),
     },
     {
       id: 'waffo-create-store',
@@ -348,6 +357,25 @@ async function main(): Promise<void> {
     printCompletedStep(step.title);
   }
 
+  if (
+    state.config.emailForwardTo &&
+    !state.completedSteps.includes('configure-email-forwarding')
+  ) {
+    printStep(
+      totalSteps + 1,
+      totalSteps + 1,
+      'Configure optional email forwarding'
+    );
+    if (await configureEmailForwarding(state.config)) {
+      state = markCompleted(
+        state.config.targetDir,
+        state,
+        'configure-email-forwarding'
+      );
+      printCompletedStep('Configure optional email forwarding');
+    }
+  }
+
   printFinalSummary(state.config);
 }
 
@@ -355,6 +383,7 @@ function shouldIncludeStep(
   stepId: string,
   config: SetupState['config']
 ): boolean {
+  if (stepId === 'enable-email-sending') return Boolean(config.emailSending);
   if (stepId.startsWith('waffo-')) {
     return config.paymentProvider === 'waffo';
   }

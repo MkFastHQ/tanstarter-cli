@@ -10,6 +10,170 @@ export function cloudflareAuth(config: RuntimeConfig): void {
   runInherited('pnpm', ['exec', 'cf', 'auth', 'whoami'], config);
 }
 
+export async function enableEmailSending(config: RuntimeConfig): Promise<void> {
+  if (!config.emailSending) return;
+  if (!config.domain)
+    throw new Error('Email Sending requires a custom domain.');
+  const zone = await requireEmailZone(config);
+  const domains = await cloudflareRequest<
+    Array<{ tag: string; name: string; enabled: boolean }>
+  >(config, 'GET', `/zones/${zone.id}/email/sending/subdomains`);
+  let sendingDomain = domains.result.find(
+    (domain) => domain.name === config.domain
+  );
+  if (sendingDomain && !sendingDomain.enabled) {
+    throw new Error(
+      `Email Sending is disabled for ${config.domain}; review it in Cloudflare before retrying.`
+    );
+  }
+  if (!sendingDomain) {
+    const result = runCommand(
+      'pnpm',
+      [
+        'exec',
+        'cf',
+        'email-sending',
+        'subdomains',
+        'create',
+        '--zone',
+        zone.id,
+        '--name',
+        config.domain,
+      ],
+      config
+    );
+    sendingDomain = JSON.parse(result.stdout) as {
+      tag: string;
+      name: string;
+      enabled: boolean;
+    };
+  }
+  if (!sendingDomain.tag)
+    throw new Error('Cloudflare did not return a sending subdomain tag.');
+  for (const action of ['fix', 'get', 'status']) {
+    runInherited(
+      'pnpm',
+      [
+        'exec',
+        'cf',
+        'email-sending',
+        'subdomains',
+        'dns',
+        action,
+        sendingDomain.tag,
+        '--zone',
+        zone.id,
+      ],
+      config
+    );
+  }
+}
+
+async function requireEmailZone(
+  config: RuntimeConfig
+): Promise<CloudflareZone> {
+  const zone = await findCloudflareZone(config, config.domain);
+  if (!zone)
+    throw new Error(`Cloudflare zone for ${config.domain} was not found.`);
+  return zone;
+}
+
+/** Optional final step: failures never abort project initialization. */
+export async function configureEmailForwarding(
+  config: RuntimeConfig
+): Promise<boolean> {
+  if (!config.emailForwardTo) return false;
+  try {
+    if (!config.domain)
+      throw new Error('--email-forward-to requires a custom domain.');
+    const zone = await requireEmailZone(config);
+    if (config.domain !== zone.name) {
+      throw new Error(
+        'Automatic email forwarding currently requires the zone apex domain; configure subdomain routing manually in Cloudflare.'
+      );
+    }
+    const source = `support@${config.domain}`;
+    const rules = await listCloudflarePages<EmailRoutingRule>(
+      config,
+      `/zones/${zone.id}/email/routing/rules`
+    );
+    const existing = rules.filter((rule) =>
+      rule.matchers.some(
+        (matcher) =>
+          matcher.type === 'literal' &&
+          matcher.field === 'to' &&
+          matcher.value === source
+      )
+    );
+    if (existing.length) {
+      if (
+        !existing.every(
+          (rule) =>
+            rule.enabled &&
+            rule.actions.length === 1 &&
+            rule.actions[0]?.type === 'forward' &&
+            rule.actions[0]?.value?.length === 1 &&
+            rule.actions[0]?.value?.[0] === config.emailForwardTo
+        )
+      ) {
+        throw new Error(
+          `A different or disabled routing rule already exists for ${source}; review it before retrying.`
+        );
+      }
+    }
+    // Inspect conflicts before changing DNS. The API rejects unverified
+    // destinations without registering addresses or sending verification mail.
+    runInherited(
+      'pnpm',
+      [
+        'exec',
+        'cf',
+        'email-routing',
+        'enable',
+        '--zone',
+        zone.id,
+        '--name',
+        config.domain,
+      ],
+      config
+    );
+    if (!existing.length) {
+      runInherited(
+        'pnpm',
+        [
+          'exec',
+          'cf',
+          'email-routing',
+          'rules',
+          'create',
+          '--zone',
+          zone.id,
+          '--name',
+          'Support forwarding',
+          '--enabled',
+          '--matchers',
+          JSON.stringify([{ type: 'literal', field: 'to', value: source }]),
+          '--actions',
+          JSON.stringify([{ type: 'forward', value: [config.emailForwardTo] }]),
+        ],
+        config
+      );
+    }
+    console.log(
+      `Email forwarding configured: ${source} → ${config.emailForwardTo}`
+    );
+    return true;
+  } catch (error) {
+    console.warn(
+      `Optional email forwarding failed: ${error instanceof Error ? error.message : String(error)}`
+    );
+    console.warn(
+      'Project initialization is complete. Verify the destination email in Cloudflare and check Email Routing Rules Edit, Email Routing Settings Edit, Zone Read, and DNS Edit permissions. Then rerun create <project-name> --resume to retry.'
+    );
+    return false;
+  }
+}
+
 export function createD1(config: RuntimeConfig): RuntimeConfig {
   if (config.d1DatabaseId) return config;
 
@@ -372,6 +536,12 @@ async function listCloudflarePages<T>(
       return results;
     }
   }
+}
+
+interface EmailRoutingRule {
+  enabled: boolean;
+  matchers: Array<{ type: string; field?: string; value?: string }>;
+  actions: Array<{ type: string; value?: string[] }>;
 }
 
 interface CloudflareApiResponse<T> {

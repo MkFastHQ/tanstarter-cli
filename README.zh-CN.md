@@ -64,6 +64,7 @@ tanstarter create <project-name> --resume
 参数：
 
 - `--domain <domain>`：配置 Cloudflare 自定义域名路由。
+- `--email-sending`：为 `--domain` 开启 Cloudflare Email Sending（可选）。
 - `--payment <none|waffo>`：生成项目的支付方式。选择 `waffo` 时，CLI 使用模板内置的月付、年付和一次性产品，并在初始化过程中自动创建 Waffo 门店、产品和 Webhook。
 - `-y, --yes`：自动接受默认域名、资源名称、GitHub 仓库和最终确认。除非已传入 `--payment`，否则仍会询问支付方式。
 - `--repo <owner/name>`：创建指定的 GitHub 仓库。如果省略，TanStarter CLI 会默认使用当前 GitHub CLI 登录账号和项目名，例如 `open-fox/my-app`。
@@ -152,3 +153,31 @@ Waffo 仍可能要求在控制台完成商户验证、企业资料和收款账�
 ## License
 
 MIT
+
+## Cloudflare 邮件域名配置
+
+使用 Cloudflare DNS 和 Workers Paid 计划时，可以选择自动开启域名发信：
+
+```bash
+npx tanstarter-cli@latest create my-app --domain example.com --email-sending
+```
+
+交互模式中选择自定义域名后也会询问是否开启，默认跳过。CLI 会在 Cloudflare 认证后运行下列命令，自动添加发信 DNS 记录并显示状态；失败时修复问题后用 `--resume` 继续。Token 需要 Email Sending Edit、Zone Read 和 DNS Edit 权限，资源范围须包含该域名。此步骤不配置收件转发、不发送测试邮件，也不修改模板发件地址；仍需在 `src/config/website.ts` 中设置同域名的 `fromEmail`。删除项目时保留域名的邮件配置。
+
+```bash
+pnpm exec cf email-sending subdomains create --zone <zone-id> --name example.com
+# 将返回的 tag 作为 <subdomain-id>：
+pnpm exec cf email-sending subdomains dns fix <subdomain-id> --zone <zone-id>
+pnpm exec cf email-sending subdomains dns get <subdomain-id> --zone <zone-id>
+pnpm exec cf email-sending subdomains dns status <subdomain-id> --zone <zone-id>
+```
+
+CLI 会定位所属 zone，续跑时复用已启用的发信域名，再修复并检查 DNS。支持为子域名开通发信；已被禁用的发信域名须先手动检查。
+
+### 可选收件转发
+
+```bash
+npx tanstarter-cli@latest create my-app --domain example.com --email-forward-to you@gmail.com
+```
+
+将 `support@<domain>` 转发到指定邮箱。自动配置目前仅支持 zone 主域名（如 `example.com`），子域名收件路由须手动配置。目标须先在 Cloudflare 验证，Token 需包含 Email Routing Rules Edit、Email Routing Settings Edit、Zone Read、DNS Edit，范围包含该域名。此步骤在创建、部署和 GitHub 初始化后最后执行；失败只提示，不影响整个初始化的成功结果，未完成的转发可用 `create my-app --resume` 重试。相同规则会复用，有冲突或禁用规则时不覆盖。不自动注册未验证邮箱或发送验证邮件。可与 `--email-sending` 一起使用；删除项目时保留邮件配置。

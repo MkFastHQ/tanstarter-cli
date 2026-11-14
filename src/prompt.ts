@@ -93,6 +93,16 @@ async function promptForMissingOptions(
     }
   }
 
+  if (domain && !options.emailSending) {
+    const answer = await rl.question(
+      'Enable Cloudflare Email Sending for this domain (Workers Paid, adds DNS records)? [y/N]: '
+    );
+    nextConfig = {
+      ...nextConfig,
+      emailSending: /^y(es)?$/i.test(answer.trim()),
+    };
+  }
+
   const d1DatabaseName = await askResourceName(
     rl,
     'D1 database',
@@ -225,6 +235,8 @@ async function confirmSetup(
   console.log(
     `  Domain: ${config.domain || '(none; workers.dev fallback after deploy)'}`
   );
+  console.log(`  Email Sending: ${config.emailSending ? config.domain : '(skip)'}`);
+  console.log(`  Email forwarding: ${config.emailForwardTo || '(skip)'}`);
   console.log(`  GitHub repo: ${config.githubRepo}`);
   if (config.paymentProvider === 'waffo') {
     console.log('  Payment: Waffo');

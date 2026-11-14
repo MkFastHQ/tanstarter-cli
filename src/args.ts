@@ -14,6 +14,8 @@ export function parseArgs(args: string[]): CliOptions {
   let payment: PaymentProvider | undefined;
   let acceptDefaults = false;
   let resume = false;
+  let emailSending = false;
+  let emailForwardTo: string | undefined;
 
   for (let index = 0; index < args.length; index++) {
     const arg = args[index];
@@ -26,6 +28,19 @@ export function parseArgs(args: string[]): CliOptions {
     if (arg === '-v' || arg === '--version') {
       printVersion();
       process.exit(0);
+    }
+    if (arg === '--email-forward-to' || arg.startsWith('--email-forward-to=')) {
+      emailForwardTo = arg === '--email-forward-to'
+        ? requireValue(args, ++index, '--email-forward-to')
+        : arg.slice('--email-forward-to='.length);
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailForwardTo)) {
+        throw new Error('--email-forward-to must be an email address.');
+      }
+      continue;
+    }
+    if (arg === '--email-sending') {
+      emailSending = true;
+      continue;
     }
     if (arg === '--resume') {
       resume = true;
@@ -111,6 +126,8 @@ export function parseArgs(args: string[]): CliOptions {
     domain,
     ...(githubRepo ? { githubRepo } : {}),
     ...(payment ? { payment } : {}),
+    ...(emailSending ? { emailSending } : {}),
+    ...(emailForwardTo ? { emailForwardTo } : {}),
     acceptDefaults,
     resume,
   };

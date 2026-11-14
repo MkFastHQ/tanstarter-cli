@@ -20,6 +20,11 @@ import { parseDeploymentUrl } from '../src/deployment.ts';
 import { assertCloudflareProject } from '../src/cloudflare-config.ts';
 import * as commands from '../src/commands.ts';
 import { assertNodeVersion } from '../src/preflight.ts';
+import {
+  applyEmailOptions,
+  readExistingState,
+  writeState,
+} from '../src/state.ts';
 
 const dirs: string[] = [];
 function config() {
@@ -209,6 +214,66 @@ describe('Windows package command shims', () => {
       );
     }
   );
+});
+
+describe('email resume state', () => {
+  it('persists new options and resets forwarding completion before any provider operation', () => {
+    const value = {
+      ...config(),
+      domain: 'example.com',
+      emailForwardTo: 'old@example.com',
+    };
+    const state = writeState(value.targetDir, {
+      config: value,
+      completedSteps: [
+        'clone-template',
+        'deploy',
+        'configure-email-forwarding',
+      ],
+      updatedAt: '',
+    });
+    const options = parseArgs([
+      'create',
+      'demo',
+      '--resume',
+      '--email-sending',
+      '--email-forward-to',
+      'new@example.com',
+    ]);
+    applyEmailOptions(state, options);
+    const saved = readExistingState(value.targetDir);
+    expect(saved.config).toMatchObject({
+      emailSending: true,
+      emailForwardTo: 'new@example.com',
+    });
+    expect(saved.completedSteps).toEqual(['clone-template', 'deploy']);
+    expect(
+      fs.readFileSync(
+        path.join(value.targetDir, '.tanstarter/state.json'),
+        'utf8'
+      )
+    ).not.toContain('test-token');
+  });
+
+  it('does not create the target directory before a fresh clone', () => {
+    const value = config();
+    fs.rmdirSync(value.targetDir);
+    applyEmailOptions(
+      {
+        config: { ...value, domain: 'example.com' },
+        completedSteps: [],
+        updatedAt: '',
+      },
+      parseArgs([
+        'create',
+        'demo',
+        '--domain',
+        'example.com',
+        '--email-sending',
+      ])
+    );
+    expect(fs.existsSync(value.targetDir)).toBe(false);
+  });
 });
 
 describe('template Node.js requirements', () => {

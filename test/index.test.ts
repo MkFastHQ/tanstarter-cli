@@ -12,9 +12,12 @@ import {
   buildR2ObjectPath,
   buildR2ObjectsPath,
   ensureWorkerCustomDomain,
+  enableEmailSending,
+  configureEmailForwarding,
   parseD1DatabaseId,
   parseKVNamespaceId,
 } from '../src/cloudflare.ts';
+import * as commands from '../src/commands.ts';
 import { runCommand } from '../src/commands.ts';
 import { createConfig } from '../src/config.ts';
 import { DEFAULT_TEMPLATE_URL } from '../src/constants.ts';
@@ -1249,5 +1252,146 @@ describe('deployment URL resolution', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(delays).toEqual([2_000]);
     vi.unstubAllGlobals();
+  });
+});
+
+
+describe('Email Sending onboarding', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  function mockSending(existing: unknown[] = []) {
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(Response.json({ success: true, result: [{ id: 'zone-id', name: 'example.com' }] }))
+      .mockResolvedValueOnce(Response.json({ success: true, result: existing })));
+    const run = vi.spyOn(commands, 'runInherited').mockImplementation(() => {});
+    const create = vi.spyOn(commands, 'runCommand').mockReturnValue({
+      stdout: JSON.stringify({ tag: 'sending-id', name: 'example.com', enabled: true }), stderr: '',
+    });
+    return { run, create };
+  }
+
+  it('skips onboarding unless explicitly selected', async () => {
+    const { run, create } = mockSending();
+    await enableEmailSending(createTestConfig({ domain: 'example.com' }));
+    expect(run).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('creates a sending domain then configures DNS using its tag and zone ID', async () => {
+    const { run, create } = mockSending();
+    const config = createTestConfig({ domain: 'example.com', emailSending: true });
+    await enableEmailSending(config);
+    expect(create.mock.calls[0]?.[1]).toEqual([
+      'exec', 'cf', 'email-sending', 'subdomains', 'create', '--zone', 'zone-id', '--name', 'example.com',
+    ]);
+    expect(run.mock.calls.map((call) => call[1])).toEqual(['fix', 'get', 'status'].map((action) => [
+      'exec', 'cf', 'email-sending', 'subdomains', 'dns', action, 'sending-id', '--zone', 'zone-id',
+    ]));
+  });
+
+  it('reuses an existing sending domain on resume', async () => {
+    const { run, create } = mockSending([{ tag: 'existing-id', name: 'app.example.com', enabled: true }]);
+    await enableEmailSending(createTestConfig({ domain: 'app.example.com', emailSending: true }));
+    expect(create).not.toHaveBeenCalled();
+    expect(run.mock.calls[0]?.[1]).toContain('existing-id');
+    expect(run.mock.calls[0]?.[1]).toContain('zone-id');
+  });
+
+  it('requires a domain and propagates failures for resume', async () => {
+    const { run } = mockSending();
+    await expect(enableEmailSending(createTestConfig({ emailSending: true }))).rejects.toThrow('requires a custom domain');
+    run.mockImplementation(() => { throw new Error('permission denied'); });
+    await expect(enableEmailSending(createTestConfig({ domain: 'example.com', emailSending: true }))).rejects.toThrow('permission denied');
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it('parses the non-interactive opt-in flag', () => {
+    expect(parseArgs(['create', 'demo-app', '--domain', 'example.com', '--email-sending']))
+      .toMatchObject({ domain: 'example.com', emailSending: true });
+  });
+});
+
+
+describe('optional final email forwarding', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  function mockRouting(rules: unknown[] = []) {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, result: [{ id: 'zone-id', name: 'example.com' }] })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, result: rules })));
+    vi.stubGlobal('fetch', fetchMock);
+    const run = vi.spyOn(commands, 'runInherited').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    return run;
+  }
+
+  it('creates support forwarding to the selected mailbox', async () => {
+    const run = mockRouting();
+    expect(await configureEmailForwarding(createTestConfig({ domain: 'example.com', emailForwardTo: 'you@gmail.com' }))).toBe(true);
+    expect(JSON.parse(run.mock.calls[1]?.[1][run.mock.calls[1][1].indexOf('--matchers') + 1] ?? '')).toEqual([
+      { type: 'literal', field: 'to', value: 'support@example.com' },
+    ]);
+    expect(JSON.parse(run.mock.calls[1]?.[1][run.mock.calls[1][1].indexOf('--actions') + 1] ?? '')).toEqual([
+      { type: 'forward', value: ['you@gmail.com'] },
+    ]);
+    expect(run.mock.calls[0]?.[1]).toEqual(['exec', 'cf', 'email-routing', 'enable', '--zone', 'zone-id', '--name', 'example.com']);
+  });
+
+  it('does not duplicate an identical enabled rule on retry', async () => {
+    const run = mockRouting([{ enabled: true, matchers: [{ type: 'literal', field: 'to', value: 'support@example.com' }], actions: [{ type: 'forward', value: ['you@gmail.com'] }] }]);
+    expect(await configureEmailForwarding(createTestConfig({ domain: 'example.com', emailForwardTo: 'you@gmail.com' }))).toBe(true);
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns a retryable failure without throwing when the destination is unverified', async () => {
+    const run = mockRouting();
+    run.mockImplementationOnce(() => {}).mockImplementationOnce(() => { throw new Error('destination not verified'); });
+    expect(await configureEmailForwarding(createTestConfig({ domain: 'example.com', emailForwardTo: 'you@gmail.com' }))).toBe(false);
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('destination not verified'));
+  });
+
+  it('preserves conflicting rules and does not fail initialization', async () => {
+    const run = mockRouting([{ enabled: true, matchers: [{ type: 'literal', field: 'to', value: 'support@example.com' }], actions: [{ type: 'forward', value: ['other@gmail.com'] }] }]);
+    expect(await configureEmailForwarding(createTestConfig({ domain: 'example.com', emailForwardTo: 'you@gmail.com' }))).toBe(false);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('warns rather than throws without a domain', async () => {
+    const run = mockRouting();
+    expect(await configureEmailForwarding(createTestConfig({ emailForwardTo: 'you@gmail.com' }))).toBe(false);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('rejects subdomain forwarding before changing DNS', async () => {
+    const run = mockRouting();
+    expect(await configureEmailForwarding(createTestConfig({ domain: 'app.example.com', emailForwardTo: 'you@gmail.com' }))).toBe(false);
+    expect(run).not.toHaveBeenCalled();
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('zone apex domain'));
+  });
+
+  it('checks later rule pages before creating or changing anything', async () => {
+    const run = mockRouting();
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockReset()
+      .mockResolvedValueOnce(Response.json({ success: true, result: [{ id: 'zone-id', name: 'example.com' }] }))
+      .mockResolvedValueOnce(Response.json({ success: true, result: [{ enabled: true, matchers: [], actions: [] }], result_info: { total_pages: 2 } }))
+      .mockResolvedValueOnce(Response.json({ success: true, result: [{ enabled: false, matchers: [{ type: 'literal', field: 'to', value: 'support@example.com' }], actions: [] }], result_info: { total_pages: 2 } }));
+    expect(await configureEmailForwarding(createTestConfig({ domain: 'example.com', emailForwardTo: 'you@gmail.com' }))).toBe(false);
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain('page=2');
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('accepts both forwarding flag forms and rejects malformed addresses', () => {
+    expect(parseArgs(['create', 'demo-app', '--email-forward-to', 'you@gmail.com']).emailForwardTo).toBe('you@gmail.com');
+    expect(parseArgs(['create', 'demo-app', '--email-forward-to=you@gmail.com']).emailForwardTo).toBe('you@gmail.com');
+    expect(() => parseArgs(['create', 'demo-app', '--email-forward-to=invalid'])).toThrow('email address');
   });
 });

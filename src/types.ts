@@ -14,6 +14,8 @@ export interface CliOptions {
   projectName: string;
   targetDir: string;
   domain: string;
+  emailSending?: boolean;
+  emailForwardTo?: string;
   githubRepo?: string;
   payment?: PaymentProvider;
   acceptDefaults: boolean;
@@ -24,6 +26,8 @@ export interface RuntimeConfig {
   projectName: string;
   targetDir: string;
   domain: string;
+  emailSending?: boolean;
+  emailForwardTo?: string;
   githubRepo: string;
   githubRepoUrl?: string;
   deploymentUrl?: string;

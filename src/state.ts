@@ -3,7 +3,34 @@ import path from 'node:path';
 import process from 'node:process';
 
 import { STATE_DIR, STATE_FILE } from './constants.js';
-import type { RuntimeConfig, SetupState } from './types.js';
+import type { CliOptions, RuntimeConfig, SetupState } from './types.js';
+
+export function applyEmailOptions(
+  state: SetupState,
+  options: CliOptions
+): SetupState {
+  if (options.emailSending && !state.config.domain) {
+    throw new Error('--email-sending requires --domain.');
+  }
+  if (!options.emailSending && !options.emailForwardTo) return state;
+  const next: SetupState = {
+    ...state,
+    config: {
+      ...state.config,
+      ...(options.emailSending ? { emailSending: true } : {}),
+      ...(options.emailForwardTo
+        ? { emailForwardTo: options.emailForwardTo }
+        : {}),
+    },
+    completedSteps: state.completedSteps.filter(
+      (step) =>
+        !(options.emailForwardTo && step === 'configure-email-forwarding')
+    ),
+  };
+  // New projects are saved after cloning. Resumed options must survive even
+  // when every normal step is skipped and the email operation fails.
+  return options.resume ? writeState(next.config.targetDir, next) : next;
+}
 
 export function readExistingState(targetDir: string): SetupState {
   const statePath = path.join(targetDir, STATE_DIR, STATE_FILE);
@@ -36,15 +63,13 @@ export function readState(
   }
 
   const state = JSON.parse(fs.readFileSync(statePath, 'utf8')) as SetupState;
-  return restoreRuntimeCredentials(
-    {
-      ...state,
-      config: {
-        ...fallbackConfig,
-        ...state.config,
-      },
-    }
-  );
+  return restoreRuntimeCredentials({
+    ...state,
+    config: {
+      ...fallbackConfig,
+      ...state.config,
+    },
+  });
 }
 
 export function writeState(targetDir: string, state: SetupState): SetupState {

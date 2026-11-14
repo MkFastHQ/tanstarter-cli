@@ -22,6 +22,10 @@ export function createConfig(options: CliOptions): RuntimeConfig {
     requireEnv('WAFFO_PRIVATE_KEY');
   }
 
+  if (options.emailSending && !options.domain && !options.resume) {
+    throw new Error('--email-sending requires --domain.');
+  }
+
   if (options.domain) {
     validateDomain(options.domain);
   }
@@ -33,6 +37,8 @@ export function createConfig(options: CliOptions): RuntimeConfig {
     projectName: options.projectName,
     targetDir: options.targetDir,
     domain: normalizeDomain(options.domain),
+    emailSending: options.emailSending ?? false,
+    ...(options.emailForwardTo ? { emailForwardTo: options.emailForwardTo } : {}),
     githubRepo: options.githubRepo || options.projectName,
     cloudflareAccountId,
     cloudflareApiToken,

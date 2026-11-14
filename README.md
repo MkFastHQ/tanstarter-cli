@@ -64,6 +64,7 @@ tanstarter create <project-name> --resume
 Options:
 
 - `--domain <domain>`: configure a Cloudflare custom domain route.
+- `--email-sending`: onboard `--domain` for Cloudflare Email Sending (optional).
 - `--payment <none|waffo>`: payment method for the generated project. With `waffo`, the CLI uses the template's built-in monthly, yearly, and lifetime products, then creates the Waffo store, products, and webhook during setup.
 - `-y, --yes`: accept default domain, resource names, GitHub repository, and final confirmation. It still asks for payment unless `--payment` is set.
 - `--repo <owner/name>`: create this GitHub repository. If omitted, TanStarter CLI defaults to the current GitHub CLI login and project name, for example `open-fox/my-app`.
@@ -153,3 +154,31 @@ If you have questions, contact [support@tanstarter.dev](mailto:support@tanstarte
 ## License
 
 MIT
+
+## Cloudflare Email Sending domain setup
+
+With Cloudflare DNS and a Workers Paid plan, opt in to automatic domain onboarding:
+
+```bash
+npx tanstarter-cli@latest create my-app --domain example.com --email-sending
+```
+
+Interactive setup also asks after choosing a custom domain; the default is to skip. After Cloudflare authentication, the CLI runs the commands below to add sending DNS records and display settings. Fix failures and continue with `--resume`. The token needs Email Sending Edit, Zone Read, and DNS Edit permissions scoped to the domain. This step does not configure inbound routing, send a test email, or update the template sender address; set `fromEmail` in `src/config/website.ts` to an address on the onboarded domain. Project deletion preserves domain email configuration.
+
+```bash
+pnpm exec cf email-sending subdomains create --zone <zone-id> --name example.com
+# Use the returned tag as <subdomain-id>:
+pnpm exec cf email-sending subdomains dns fix <subdomain-id> --zone <zone-id>
+pnpm exec cf email-sending subdomains dns get <subdomain-id> --zone <zone-id>
+pnpm exec cf email-sending subdomains dns status <subdomain-id> --zone <zone-id>
+```
+
+The CLI resolves the containing zone and reuses an existing enabled sending domain on resume before repairing and inspecting its DNS. Sending subdomains are supported. A disabled sending domain requires manual review.
+
+### Optional inbound forwarding
+
+```bash
+npx tanstarter-cli@latest create my-app --domain example.com --email-forward-to you@gmail.com
+```
+
+Forward `support@<domain>` to the specified mailbox. Automatic inbound setup currently requires the zone apex domain (for example, `example.com`); configure subdomain routing manually. Verify the destination in Cloudflare first. The token needs Email Routing Rules Edit, Email Routing Settings Edit, Zone Read, and DNS Edit permissions covering the domain. This runs last, after creation, deployment, and GitHub initialization. Failure only warns and does not fail initialization; retry unfinished forwarding with `create my-app --resume`. Identical rules are reused; conflicting or disabled rules are not overwritten. The CLI does not register unverified addresses or send verification emails. Combine with `--email-sending` if desired; deleting the project preserves email configuration.
