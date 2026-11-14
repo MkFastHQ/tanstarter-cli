@@ -130,7 +130,7 @@ describe('parseArgs', () => {
 
     expect(options.command).toBe('create');
     expect(options.projectName).toBe('my-app');
-    expect(options.targetDir).toBe(`${process.cwd()}/my-app`);
+    expect(options.targetDir).toBe(path.resolve(process.cwd(), 'my-app'));
     expect(options.resume).toBe(false);
   });
 
@@ -152,7 +152,7 @@ describe('parseArgs', () => {
       resume: true,
       acceptDefaults: true,
     });
-    expect(options.targetDir).toBe(`${process.cwd()}/demo-app`);
+    expect(options.targetDir).toBe(path.resolve(process.cwd(), 'demo-app'));
   });
 
   it('parses the short accept-defaults flag', () => {
