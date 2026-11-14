@@ -93,6 +93,10 @@ tanstarter delete my-app
 
 删除也会清理 `.tanstarter/state.json` 中记录的 Waffo 资源：先移除 Webhook、停用已记录的产品，再请求删除门店。产品没有公开的硬删除 API。请导出 `WAFFO_MERCHANT_ID` 和原来的 Test `WAFFO_PRIVATE_KEY`；签名请求的环境由 API Key 决定，勿用 Production Key 清理测试产品。门店为软删除，任一环境的活跃产品、订阅、未完成订单等依赖都会阻止删除；CLI 不会取消订阅、退款或修改正式环境产品状态来绕过检查。失败会报告，处理后重跑 `delete`；已不存在的资源可跳过，Waffo 清理失败时仍继续其他 Cloudflare/GitHub 资源的清理。本地项目目录及域名邮件配置会保留。自定义域名绑定仅在仍属于该 Worker 时显式移除；Worker secrets 和仓库 secrets 随对应资源删除。R2 会先清空对象再删除桶。D1/KV 缺少 ID 时明确提示跳过，不算删除成功；如果资源在状态保存前已创建，需到 Cloudflare 核对。通用 `Not Found` 可能代表没有访问权限，会作为失败报告；Cloudflare 命令输出 `Aborted` 也视为失败。
 
+## 真实创建和删除测试
+
+运行 `pnpm test:e2e` 会构建 CLI，按默认配置创建 `test-cli`，验证公网访问和初始化工作流，再执行删除、核对远端资源是否消失，最后重复删除一次。此测试会操作真实 Cloudflare 和 GitHub 账户，仅手动执行，不包含在 `pnpm test` 或 CI 中。运行前导出 Cloudflare 凭证，并确保 `gh` 已登录且具有 `repo`、`delete_repo` 权限。发现已有目录或同名远端资源会在创建前停止；创建失败也会尝试清理。日志和 JSON 结果保存在临时目录，生成的项目目录保留供检查。可用 `TANSTARTER_E2E_PROJECT`、`TANSTARTER_E2E_PARENT` 指定其他未占用的项目名或父目录。
+
 ## 前置要求
 
 - Node.js 版本须与当前模板一致：`^22.23.0 || ^24.22.0 || >=26.12.0`。

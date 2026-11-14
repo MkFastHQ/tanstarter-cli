@@ -24,12 +24,17 @@ export async function verifyGithubDeployment(
     throw new Error(
       'The initialization commit SHA is missing; cannot verify its GitHub deployment.'
     );
+  const repository = config.githubRepoUrl ||
+    (config.githubRepo.includes('/') ? config.githubRepo :
+      runCommand('git', ['remote', 'get-url', 'origin'], config).stdout.trim()
+        .replace(/^git@github\.com:/, 'https://github.com/')
+        .replace(/\.git$/, ''));
   const repo = runCommand(
     'gh',
     [
       'repo',
       'view',
-      ...(config.githubRepo.includes('/') ? [config.githubRepo] : []),
+      repository,
       '--json',
       'nameWithOwner',
       '--jq',

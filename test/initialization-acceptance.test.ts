@@ -376,6 +376,7 @@ describe('initial commit Actions deployment', () => {
   it('recovers from transient queries and resolves short repo names from origin', async () => {
     const { value, run, workflow } = setup();
     run
+      .mockReturnValueOnce({ stdout: 'git@github.com:owner/demo.git\n', stderr: '' })
       .mockReturnValueOnce({ stdout: 'owner/demo', stderr: '' })
       .mockImplementationOnce(() => {
         throw new Error('temporary');
@@ -387,13 +388,25 @@ describe('initial commit Actions deployment', () => {
         { maxAttempts: 2, sleep: async () => {} }
       )
     ).resolves.toMatchObject({ conclusion: 'success' });
-    expect(run.mock.calls[0]?.[1]).toEqual([
+    expect(run.mock.calls[0]?.[1]).toEqual(['remote', 'get-url', 'origin']);
+    expect(run.mock.calls[1]?.[1]).toEqual([
       'repo',
       'view',
+      'https://github.com/owner/demo',
       '--json',
       'nameWithOwner',
       '--jq',
       '.nameWithOwner',
+    ]);
+  });
+  it('explicitly targets the saved project URL when an upstream template also exists', async () => {
+    const { value, run, workflow } = setup();
+    run.mockReturnValueOnce({ stdout: 'owner/demo', stderr: '' })
+      .mockReturnValueOnce({ stdout: JSON.stringify([workflow]), stderr: '' });
+    await verifyGithubDeployment({ ...value, githubRepo: 'demo',
+      githubRepoUrl: 'https://github.com/owner/demo' }, { maxAttempts: 1 });
+    expect(run.mock.calls[0]?.[1]).toEqual([
+      'repo', 'view', 'https://github.com/owner/demo', '--json', 'nameWithOwner', '--jq', '.nameWithOwner',
     ]);
   });
   it('preserves the matching run result for resume and reporting', async () => {
