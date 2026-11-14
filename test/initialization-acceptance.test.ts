@@ -37,10 +37,13 @@ export const websiteConfig = {
 function config(source = website) {
   vi.stubEnv('CLOUDFLARE_ACCOUNT_ID', 'account-id');
   vi.stubEnv('CLOUDFLARE_API_TOKEN', 'secret-token-do-not-print');
-  const targetDir = fs.mkdtempSync(
+  const directory = fs.mkdtempSync(
     path.join(os.tmpdir(), 'tanstarter-acceptance-')
   );
-  dirs.push(targetDir);
+  dirs.push(directory);
+  // The CLI normalizes project names to lowercase. Keep the random parent
+  // outside the project name so case-sensitive filesystems load the same state.
+  const targetDir = path.join(directory, 'demo');
   fs.mkdirSync(path.join(targetDir, 'src/config'), { recursive: true });
   fs.writeFileSync(path.join(targetDir, 'src/config/website.ts'), source);
   return {
@@ -470,7 +473,11 @@ describe('resumed initialization integration', () => {
       path.basename(current.config.targetDir),
       '--resume',
     ];
+    expect(parseArgs(process.argv.slice(2)).targetDir).toBe(current.config.targetDir);
     vi.spyOn(preflight, 'assertNodeVersion').mockImplementation(() => {});
+    vi.spyOn(preflight, 'preflight').mockImplementation(() => {
+      throw new Error('Unexpected preflight: saved resume state was not loaded.');
+    });
     vi.spyOn(console, 'log').mockImplementation(() => {});
     return current;
   }
