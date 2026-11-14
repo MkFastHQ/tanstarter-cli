@@ -69,7 +69,7 @@ tanstarter create my-app \
 
 For a checkout that supports Waffo, add `--payment waffo`. That flow creates the template's Waffo store, products, and webhook after public deployment is reachable.
 
-Report the actual created directory, deployment URL, repository URL, and which verification steps completed. The CLI confirms the initialization commit's `deploy.yml` push run and reports its URL; after a failed run, fix the problem and rerun the workflow before resuming. Distinguish completed infrastructure/configuration checks from real functional tests in the final acceptance report.
+Report the actual created directory, deployment URL, repository URL, and which verification steps completed. The CLI confirms the initialization commit's `deploy.yml` push run and reports its URL; after a failed run, fix the problem and rerun the workflow before resuming. Keep the final response concise and do not append a feature acceptance report.
 
 When the user requests Cloudflare Email Sending, use `--email-sending` with their custom domain. This also configures application mail and replaces empty/template-default sender and support addresses. A custom sender must match the onboarded domain. Only pass `--email-test-to <email>` when the user explicitly requests a test and supplies the destination. It sends one direct provider test, not an application signup/reset test. Plain resume does not resend; explicitly passing the flag requests another attempt. Report queued/unknown/rejected outcomes accurately, and leave actual inbox receipt, deployed email flows, OAuth, storage and payment checkout as manual tasks until verified. Follow the CLI help check above before using options that may not yet be published.
 

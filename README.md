@@ -127,7 +127,7 @@ The setup flow:
 5. Creates Cloudflare D1, R2, and KV resources.
 6. Updates `cloudflare.config.ts` (Worker name, domains, and DB/BUCKET/CACHE bindings) and writes `.env`/`.env.production`.
 7. Runs database migrations.
-8. Builds and deploys locally.
+8. Builds and deploys locally, supplying production environment values with `--secrets-file` so a new Worker receives required secrets during its first deployment. The temporary JSON file is owner-readable/writable and removed after success or failure.
 9. Syncs Worker secrets.
 10. Verifies the public deployment URL.
 11. (Waffo only) Registers the webhook after the deployed route is reachable.
@@ -135,9 +135,9 @@ The setup flow:
 13. Syncs GitHub Actions secrets.
 14. Commits and pushes to `main`.
 15. Confirms the `deploy.yml` push workflow for that initialization commit SHA and prints its run URL. A failed run stops setup; resume after fixing and rerunning it. A missing/disabled workflow or a long-running deployment times out after approximately 20 minutes plus query time.
-16. Checks the public URL again after GitHub deployment, then prints a feature acceptance report. Optional forwarding and an explicitly requested test email run before the report.
+16. Checks the public URL again after GitHub deployment. Optional forwarding and an explicitly requested test email run before the final project summary.
 
-The report distinguishes completed checks, configured resources, failures, and manual tasks. HTTP success does not prove authentication, inbox receipt, uploads, or payments work. It uses static website configuration without executing project code or reading secret values. Dynamic settings are listed for manual verification. Follow the report to test enabled login methods, email, storage, newsletter/notifications, Waffo sandbox checkout, and admin access. This CLI remains focused on initialization; later deployments use the generated repository's existing workflow.
+Each step prints its result and relevant resource details. The final summary shows the project directory, website, and repository. This CLI remains focused on initialization; later deployments use the generated repository's existing workflow.
 
 The generated repository uses `origin` for your new GitHub repository and
 `upstream` for `https://github.com/MkFastHQ/mkfast-template.git`. Because the
@@ -188,7 +188,7 @@ tanstarter create my-app --domain example.com --email-sending --email-test-to yo
 tanstarter create my-app --resume --email-test-to you@example.net
 ```
 
-Only `--email-test-to` requests a send; forwarding alone never sends a test message. The test uses the configured sender and the Cloudflare REST API directly, so the token also needs Email Send permission. It does not test the deployed application's runtime credentials, templates, or signup/reset flow. The report distinguishes provider-reported delivery, queued messages, rejection/bounce, and an unknown outcome. Confirm actual receipt, spam placement, registration verification and password reset yourself. The attempt is saved before the request; a timeout, interruption, or plain `--resume` never automatically resends it. Pass `--email-test-to` explicitly to try again. A test failure is reported without undoing initialization.
+Only `--email-test-to` requests a send; forwarding alone never sends a test message. The test uses the configured sender and the Cloudflare REST API directly, so the token also needs Email Send permission. It does not test the deployed application's runtime credentials, templates, or signup/reset flow. The test result distinguishes provider-reported delivery, queued messages, rejection/bounce, and an unknown outcome. Confirm actual receipt, spam placement, registration verification and password reset yourself. The attempt is saved before the request; a timeout, interruption, or plain `--resume` never automatically resends it. Pass `--email-test-to` explicitly to try again. A test failure is reported without undoing initialization.
 
 ### Optional inbound forwarding
 

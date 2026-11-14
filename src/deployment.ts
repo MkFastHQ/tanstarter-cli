@@ -1,4 +1,36 @@
-import type { RuntimeConfig } from './types.js';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { parseEnv } from 'node:util';
+
+import type { CommandResult, RuntimeConfig } from './types.js';
+import { runCommandAndEcho } from './commands.js';
+
+/** Supply required secrets atomically, including when the Worker does not exist. */
+export function deployWithSecrets(config: RuntimeConfig): CommandResult {
+  const values = parseEnv(
+    fs.readFileSync(path.join(config.targetDir, '.env.production'), 'utf8')
+  );
+  for (const key of ['VITE_BASE_URL', 'BETTER_AUTH_SECRET']) {
+    if (!values[key]?.trim()) {
+      throw new Error(`Missing required production environment variable: ${key}`);
+    }
+  }
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'tanstarter-deploy-'));
+  try {
+    // JSON preserves literal dollars and multiline values, without dotenv expansion
+    // or ambient environment overrides. Match the template's secret sync values.
+    const file = path.join(directory, 'secrets.json');
+    fs.writeFileSync(file, JSON.stringify(values), { mode: 0o600 });
+    return runCommandAndEcho(
+      'pnpm',
+      ['run', 'deploy', '--secrets-file', file],
+      config
+    );
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+}
 
 const DEPLOYMENT_REQUEST_TIMEOUT_MS = 15_000;
 const DEPLOYMENT_RETRY_DELAYS_MS = [

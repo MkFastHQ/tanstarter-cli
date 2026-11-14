@@ -127,7 +127,7 @@ Waffo 仍可能要求在控制台完成商户验证、企业资料和收款账�
 5. 创建 Cloudflare D1、R2 和 KV 资源。
 6. 更新 `cloudflare.config.ts` 中的 Worker 名称、域名及 DB/BUCKET/CACHE 绑定，并写入 `.env`/`.env.production`。
 7. 执行数据库迁移。
-8. 本地构建并部署。
+8. 本地构建并部署，通过 `--secrets-file` 将生产环境配置随首次部署一起上传，满足新 Worker 的必需密钥要求。临时 JSON 文件仅允许当前用户读写，成功或失败后都会删除。
 9. 同步 Worker secrets。
 10. 验证公网部署地址。
 11. （仅 Waffo）确认部署路由可访问后注册 Webhook。
@@ -135,9 +135,9 @@ Waffo 仍可能要求在控制台完成商户验证、企业资料和收款账�
 13. 同步 GitHub Actions secrets。
 14. 提交代码并推送到 `main` 分支。
 15. 按初始化提交的 SHA 确认 `deploy.yml` 的 push 部署结果，并输出运行链接。失败会停止初始化，修复并重新运行工作流后可续跑；工作流未触发、被禁用或长时间运行时，约 20 分钟加查询耗时后超时。
-16. GitHub 部署成功后再次检查公网地址，并输出功能验收报告。可选转发和明确请求的测试邮件在报告前执行。
+16. GitHub 部署成功后再次检查公网地址。可选转发和明确请求的测试邮件在最终项目摘要前执行。
 
-报告区分已完成的检查、已配置资源、失败和人工待办。HTTP 成功不代表登录、收信、上传或支付已通过验证。报告静态读取网站配置，不执行项目代码或读取 secret 值；动态配置列为人工确认。按报告验收已启用的登录、邮件、存储、Newsletter/通知、Waffo 沙箱支付和管理员访问。CLI 继续聚焦初始化，后续部署使用生成项目已有的工作流。
+每个步骤输出执行结果和相关资源信息，结尾显示项目目录、网站地址及 GitHub 仓库等摘要。CLI 继续聚焦初始化，后续部署使用生成项目已有的工作流。
 
 生成的仓库使用 `origin` 指向新建的 GitHub 仓库，并使用 `upstream` 指向
 `https://github.com/MkFastHQ/mkfast-template.git`。由于模板历史会被保留，
@@ -187,7 +187,7 @@ tanstarter create my-app --domain example.com --email-sending --email-test-to yo
 tanstarter create my-app --resume --email-test-to you@example.net
 ```
 
-只有 `--email-test-to` 会请求测试发送，收件转发本身不会触发测试邮件。测试使用应用配置的发件地址直接调用 Cloudflare REST API，Token 还须具备 Email Send 权限；它不验证线上应用的运行时凭证、邮件模板或注册/重置流程。报告区分服务商报告已投递、排队、拒绝/退信和结果未知；实际收信、垃圾箱位置、注册验证和密码重置需人工检查。请求前会保存发送尝试，超时、中断或普通 `--resume` 不会自动重发；再次传入 `--email-test-to` 才请求重试。测试失败会列入报告，不撤销已完成的初始化。
+只有 `--email-test-to` 会请求测试发送，收件转发本身不会触发测试邮件。测试使用应用配置的发件地址直接调用 Cloudflare REST API，Token 还须具备 Email Send 权限；它不验证线上应用的运行时凭证、邮件模板或注册/重置流程。测试结果区分服务商报告已投递、排队、拒绝/退信和结果未知；实际收信、垃圾箱位置、注册验证和密码重置需人工检查。请求前会保存发送尝试，超时、中断或普通 `--resume` 不会自动重发；再次传入 `--email-test-to` 才请求重试。测试失败会显示结果，不撤销已完成的初始化。
 
 ### 可选收件转发
 

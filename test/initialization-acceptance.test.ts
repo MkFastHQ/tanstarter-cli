@@ -7,7 +7,6 @@ import { createConfig } from '../src/config.js';
 import { configureWebsiteMail, readWebsiteSettings } from '../src/website.js';
 import { sendTestEmail } from '../src/email-test.js';
 import { verifyGithubDeployment } from '../src/github-deployment.js';
-import { buildAcceptanceReport } from '../src/acceptance.js';
 import {
   applyEmailOptions,
   readExistingState,
@@ -425,6 +424,52 @@ describe('initial commit Actions deployment', () => {
   });
 });
 
+describe('deployment with required secrets', () => {
+  it.each([false, true])('supplies literal production values and removes the secret file (command fails: %s)', (fails) => {
+    const value = config();
+    vi.stubEnv('BETTER_AUTH_SECRET', 'ambient-must-not-override');
+    fs.writeFileSync(
+      path.join(value.targetDir, '.env.production'),
+      `VITE_BASE_URL='https://example.com'\nBETTER_AUTH_SECRET='literal-$VALUE-\${TOKEN}'\nWAFFO_PRIVATE_KEY="line1\\nline2"\n`
+    );
+    let secretFile = '';
+    const run = vi.spyOn(commands, 'runCommandAndEcho').mockImplementation(
+      (command, args, receivedConfig) => {
+        expect(command).toBe('pnpm');
+        expect(args.slice(0, 3)).toEqual(['run', 'deploy', '--secrets-file']);
+        expect(receivedConfig).toBe(value);
+        secretFile = args[3]!;
+        const secrets = JSON.parse(fs.readFileSync(secretFile, 'utf8'));
+        expect(secrets).toEqual({
+          VITE_BASE_URL: 'https://example.com',
+          BETTER_AUTH_SECRET: 'literal-$VALUE-${TOKEN}',
+          WAFFO_PRIVATE_KEY: 'line1\nline2',
+        });
+        if (process.platform !== 'win32') {
+          expect(fs.statSync(secretFile).mode & 0o777).toBe(0o600);
+        }
+        if (fails) throw new Error('deployment failed');
+        return { stdout: 'https://demo.example.workers.dev', stderr: '' };
+      }
+    );
+    if (fails) {
+      expect(() => deployment.deployWithSecrets(value)).toThrow('deployment failed');
+    } else {
+      expect(deployment.deployWithSecrets(value).stdout).toContain('workers.dev');
+    }
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(fs.existsSync(path.dirname(secretFile))).toBe(false);
+  });
+
+  it('rejects missing required values before invoking deployment', () => {
+    const value = config();
+    fs.writeFileSync(path.join(value.targetDir, '.env.production'), 'VITE_BASE_URL=https://example.com\n');
+    const run = vi.spyOn(commands, 'runCommandAndEcho');
+    expect(() => deployment.deployWithSecrets(value)).toThrow('BETTER_AUTH_SECRET');
+    expect(run).not.toHaveBeenCalled();
+  });
+});
+
 describe('resumed initialization integration', () => {
   function resumed() {
     const current = state();
@@ -546,7 +591,11 @@ describe('resumed initialization integration', () => {
     );
     writeState(current.config.targetDir, current);
     const events: string[] = [];
-    vi.spyOn(commands, 'runCommandAndEcho').mockImplementation(() => {
+    vi.spyOn(commands, 'runCommandAndEcho').mockImplementation((_command, args) => {
+      expect(args.slice(0, 3)).toEqual(['run', 'deploy', '--secrets-file']);
+      const secrets = JSON.parse(fs.readFileSync(args[3]!, 'utf8'));
+      expect(secrets.VITE_BASE_URL).toBe('https://example.com');
+      expect(secrets.BETTER_AUTH_SECRET).toBeTruthy();
       events.push('deploy');
       return { stdout: 'https://demo.example.workers.dev', stderr: '' };
     });
@@ -613,109 +662,5 @@ describe('resumed initialization integration', () => {
     ).not.toContain('verify-github-deployment');
     expect(verify).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
-  });
-});
-
-describe('feature acceptance report', () => {
-  it('separates completed commands, actual verification and manual functional tests', () => {
-    const current = state();
-    configureWebsiteMail(current.config);
-    current.completedSteps = [
-      'deploy',
-      'verify-public-deployment',
-      'db-migrate-remote',
-      'sync-worker-secrets',
-      'enable-email-sending',
-    ];
-    const report = buildAcceptanceReport(current);
-    expect(report).toContainEqual(
-      expect.objectContaining({
-        status: 'pending',
-        message: expect.stringContaining('GitHub Actions'),
-      })
-    );
-    expect(report).toContainEqual(
-      expect.objectContaining({
-        status: 'pending',
-        message: expect.stringContaining('Public URL after'),
-      })
-    );
-    expect(report).toContainEqual(
-      expect.objectContaining({
-        status: 'pending',
-        message: expect.stringContaining('Google login'),
-      })
-    );
-    expect(report).toContainEqual(
-      expect.objectContaining({
-        status: 'pending',
-        message: expect.stringContaining('verification link'),
-      })
-    );
-    expect(
-      report.some((item) => /Newsletter|Notifications|R2|KV/.test(item.message))
-    ).toBe(false);
-  });
-  it('does not turn queued mail into confirmed inbox delivery or provider tests into app tests', () => {
-    const current = state();
-    configureWebsiteMail(current.config);
-    current.config.emailTestTo = 'me@example.com';
-    current.config.emailTestResult = {
-      to: 'me@example.com',
-      from: 'demo <support@example.com>',
-      status: 'queued',
-    };
-    const report = buildAcceptanceReport(current);
-    expect(report).toContainEqual(
-      expect.objectContaining({
-        status: 'pending',
-        message: expect.stringContaining('Confirm actual receipt'),
-      })
-    );
-    expect(report).toContainEqual(
-      expect.objectContaining({
-        message: expect.stringContaining('does not verify the deployed'),
-      })
-    );
-    expect(report).toContainEqual(
-      expect.objectContaining({
-        message: expect.stringContaining('delivery unconfirmed'),
-      })
-    );
-  });
-  it('reports Actions success only for the stored initialization SHA and completed verification', () => {
-    const current = state();
-    current.config.initialCommitSha = 'a'.repeat(40);
-    current.config.githubDeployment = {
-      headSha: 'b'.repeat(40),
-      status: 'completed',
-      conclusion: 'success',
-      url: 'https://github.com/owner/demo/actions/runs/1',
-    };
-    current.completedSteps = ['verify-github-deployment'];
-    expect(
-      buildAcceptanceReport(current).find((item) =>
-        item.message.includes('GitHub Actions')
-      )?.status
-    ).toBe('pending');
-    current.config.githubDeployment.headSha = current.config.initialCommitSha;
-    expect(
-      buildAcceptanceReport(current).find((item) =>
-        item.message.includes('GitHub Actions')
-      )?.status
-    ).toBe('verified');
-  });
-  it('handles dynamic config safely without executing imports or reporting disabled integrations', () => {
-    const current = state();
-    fs.writeFileSync(
-      path.join(current.config.targetDir, 'src/config/website.ts'),
-      'export const websiteConfig = buildConfig();'
-    );
-    expect(buildAcceptanceReport(current)).toContainEqual(
-      expect.objectContaining({
-        status: 'pending',
-        message: expect.stringContaining('statically inspect'),
-      })
-    );
   });
 });

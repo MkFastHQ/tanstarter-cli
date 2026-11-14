@@ -17,13 +17,13 @@ import {
   ensureWorkerCustomDomain,
 } from './cloudflare.js';
 import {
-  runCommandAndEcho,
   runCommand,
   runInherited,
   runInheritedNonInteractive,
 } from './commands.js';
 import { createConfig } from './config.js';
 import {
+  deployWithSecrets,
   getPublicBaseUrl,
   parseDeploymentUrl,
   verifyPublicDeployment,
@@ -41,7 +41,6 @@ import { configureSetup } from './prompt.js';
 import { configureWebsiteMail } from './website.js';
 import { sendTestEmail } from './email-test.js';
 import { verifyGithubDeployment } from './github-deployment.js';
-import { printAcceptanceReport } from './acceptance.js';
 import {
   applyEmailOptions,
   markCompleted,
@@ -51,6 +50,10 @@ import {
 } from './state.js';
 import {
   printCompletedStep,
+  printFailedStep,
+  printResumedStep,
+  printEmailTestResult,
+  stepResultDetails,
   printFinalSummary,
   printStep,
   printWelcomeBanner,
@@ -256,11 +259,7 @@ export async function main(): Promise<void> {
         // Reconcile the production env file before every deployment so the
         // public base URL and generated payment variables are current.
         ensureEnvFiles(state.config);
-        const result = runCommandAndEcho(
-          'pnpm',
-          ['run', 'deploy'],
-          state.config
-        );
+        const result = deployWithSecrets(state.config);
         const deploymentUrl = parseDeploymentUrl(
           `${result.stdout}\n${result.stderr}`
         );
@@ -278,7 +277,7 @@ export async function main(): Promise<void> {
             console.log(
               '\nworkers.dev URL discovered; rebuilding with the public production base URL.'
             );
-            runCommandAndEcho('pnpm', ['run', 'deploy'], state.config);
+            deployWithSecrets(state.config);
           }
         }
       },
@@ -415,90 +414,119 @@ export async function main(): Promise<void> {
 
   if (!state.completedSteps.includes('preflight')) {
     printStep(1, undefined, 'Check local tools and credentials');
-    preflight(state.config);
+    try {
+      preflight(state.config);
+    } catch (error) {
+      printFailedStep('Check local tools and credentials');
+      throw error;
+    }
     state = markCompletedInMemory(state, 'preflight');
     printCompletedStep('Check local tools and credentials');
   } else {
-    console.log('✅ Check local tools and credentials already completed');
+    printResumedStep('Check local tools and credentials');
   }
 
   printStep(2, undefined, 'Review project and setup options');
-  state = {
-    ...state,
-    config: await configureSetup(options, state.config),
-  };
-  if (state.config.emailTestTo && !state.config.emailSending) {
-    throw new Error(
-      '--email-test-to requires Cloudflare Email Sending; pass --email-sending with a custom domain.'
-    );
+  try {
+    state = {
+      ...state,
+      config: await configureSetup(options, state.config),
+    };
+    if (state.config.emailTestTo && !state.config.emailSending) {
+      throw new Error(
+        '--email-test-to requires Cloudflare Email Sending; pass --email-sending with a custom domain.'
+      );
+    }
+  } catch (error) {
+    printFailedStep('Review project and setup options');
+    throw error;
   }
   printCompletedStep('Review project and setup options');
 
   const activeSteps = steps.filter((step) =>
     shouldIncludeStep(step.id, state.config)
   );
-  const totalSteps = activeSteps.length + 2;
+  const optionalStepCount =
+    Number(Boolean(state.config.emailForwardTo)) +
+    Number(Boolean(state.config.emailTestTo));
+  const totalSteps = activeSteps.length + 2 + optionalStepCount;
 
   for (const [index, step] of activeSteps.entries()) {
     if (state.completedSteps.includes(step.id)) {
-      console.log(`✅ ${step.title} already completed`);
+      printResumedStep(step.title, stepResultDetails(step.id, state.config));
       continue;
     }
 
     printStep(index + 3, totalSteps, step.title);
     try {
       await step.run();
+      state = markCompleted(state.config.targetDir, state, step.id);
     } catch (error) {
-      printAcceptanceReport(state);
+      printFailedStep(step.title);
       throw error;
     }
-    state = markCompleted(state.config.targetDir, state, step.id);
-    printCompletedStep(step.title);
+    printCompletedStep(step.title, stepResultDetails(step.id, state.config));
   }
 
-  if (
-    state.config.emailForwardTo &&
-    !state.completedSteps.includes('configure-email-forwarding')
-  ) {
-    printStep(
-      totalSteps + 1,
-      totalSteps + 1,
-      'Configure optional email forwarding'
-    );
-    if (await configureEmailForwarding(state.config)) {
-      state = markCompleted(
-        state.config.targetDir,
-        state,
-        'configure-email-forwarding'
+  let optionalStepIndex = activeSteps.length + 2;
+  if (state.config.emailForwardTo) {
+    const title = 'Configure optional email forwarding';
+    optionalStepIndex += 1;
+    if (state.completedSteps.includes('configure-email-forwarding')) {
+      printResumedStep(
+        title,
+        stepResultDetails('configure-email-forwarding', state.config)
       );
-      printCompletedStep('Configure optional email forwarding');
+    } else {
+      printStep(optionalStepIndex, totalSteps, title);
+      if (await configureEmailForwarding(state.config)) {
+        state = markCompleted(
+          state.config.targetDir,
+          state,
+          'configure-email-forwarding'
+        );
+        printCompletedStep(
+          title,
+          stepResultDetails('configure-email-forwarding', state.config)
+        );
+      } else {
+        printFailedStep(title);
+        console.warn(
+          '   Forwarding is not confirmed; initialization will continue. Review the warning above.'
+        );
+      }
     }
   }
 
-  if (
-    state.config.emailTestTo &&
-    !state.completedSteps.includes('test-email')
-  ) {
-    // Record the attempt before sending: a crash or timeout must not cause an
-    // unsolicited duplicate on resume. An explicit --email-test-to opts in again.
-    state = markCompleted(state.config.targetDir, state, 'test-email');
-    console.log(
-      `Sending one provider test email to ${state.config.emailTestTo}.`
-    );
-    try {
-      const emailTestResult = await sendTestEmail(state.config);
-      state = writeState(state.config.targetDir, {
-        ...state,
-        config: { ...state.config, emailTestResult },
-      });
-    } catch {
-      console.warn(
-        'Could not perform the email test; verify application mail configuration and explicitly request another test when ready.'
+  if (state.config.emailTestTo) {
+    optionalStepIndex += 1;
+    if (state.completedSteps.includes('test-email')) {
+      console.log(
+        '⏭ Provider test email already attempted; skipped on resume to avoid duplicate sending.'
       );
+    } else {
+      printStep(optionalStepIndex, totalSteps, 'Send provider test email');
+      // Record the attempt before sending: a crash or timeout must not cause an
+      // unsolicited duplicate on resume. An explicit --email-test-to opts in again.
+      state = markCompleted(state.config.targetDir, state, 'test-email');
+      console.log(
+        `Sending one provider test email to ${state.config.emailTestTo}.`
+      );
+      try {
+        const emailTestResult = await sendTestEmail(state.config);
+        state = writeState(state.config.targetDir, {
+          ...state,
+          config: { ...state.config, emailTestResult },
+        });
+      } catch {
+        console.warn(
+          'Could not perform the email test; verify application mail configuration and explicitly request another test when ready.'
+        );
+      }
     }
+    printEmailTestResult(state.config);
   }
   printFinalSummary(state.config);
-  printAcceptanceReport(state);
 }
 
 function shouldIncludeStep(
