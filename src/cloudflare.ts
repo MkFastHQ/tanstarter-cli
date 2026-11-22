@@ -123,19 +123,10 @@ export async function configureEmailForwarding(
     )) {
       throw new Error('The destination is not verified in this Cloudflare account. Verify it in Cloudflare before retrying.');
     }
-    // Check catch-all conflicts and account-level verification before changing DNS.
+    // Omit --name: Cloudflare defaults to the zone apex and uses --name for subdomains.
     runInherited(
       'pnpm',
-      [
-        'exec',
-        'cf',
-        'email-routing',
-        'enable',
-        '--zone',
-        zone.id,
-        '--name',
-        config.domain,
-      ],
+      ['exec', 'cf', 'email-routing', 'enable', '--zone', zone.id],
       config
     );
     if (!sameDestination || !existing.enabled) {

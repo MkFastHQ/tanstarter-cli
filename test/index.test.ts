@@ -1344,7 +1344,7 @@ describe('optional final email forwarding', () => {
     expect(args.slice(0, 6)).toEqual(['exec', 'cf', 'email-routing', 'rules', 'catch-all', 'update']);
     expect(JSON.parse(args[args.indexOf('--matchers') + 1]!)).toEqual([{ type: 'all' }]);
     expect(JSON.parse(args[args.indexOf('--actions') + 1]!)).toEqual([{ type: 'forward', value: ['you@gmail.com'] }]);
-    expect(run.mock.calls[0]?.[1]).toEqual(['exec', 'cf', 'email-routing', 'enable', '--zone', 'zone-id', '--name', 'example.com']);
+    expect(run.mock.calls[0]?.[1]).toEqual(['exec', 'cf', 'email-routing', 'enable', '--zone', 'zone-id']);
   });
 
   it('reuses an identical enabled catch-all on retry', async () => {
